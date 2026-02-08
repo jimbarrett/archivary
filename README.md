@@ -14,11 +14,25 @@ Runs as a single binary — no external dependencies required.
 - **Single binary** — frontend is embedded; download and run
 - **Local-first** — your files stay on your machine
 
-## Quick Start
+## Installation
+
+Download the latest binary for your platform from the [Releases](https://github.com/jimbarrett/archivary/releases) page.
+
+### Linux / macOS
 
 ```bash
-# Download the binary (or build from source)
-./archivary serve
+chmod +x archivary_*
+sudo mv archivary_* /usr/local/bin/archivary
+```
+
+### Windows
+
+Rename the downloaded file to `archivary.exe` and move it to a directory in your `PATH`.
+
+### Verify
+
+```bash
+archivary serve
 ```
 
 This will:
