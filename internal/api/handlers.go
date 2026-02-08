@@ -240,6 +240,21 @@ func (h *handlers) deleteDir(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+// POST /api/reindex
+func (h *handlers) reindex(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	if err := h.store.RebuildIndex(); err != nil {
+		return errJSON(c, http.StatusInternalServerError, "rebuilding file index: "+err.Error())
+	}
+
+	if err := h.indexer.Reindex(ctx, h.store); err != nil {
+		return errJSON(c, http.StatusInternalServerError, "reindexing: "+err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // GET /api/pages/check-path?path=some/file.md
 func (h *handlers) checkPath(c echo.Context) error {
 	path := c.QueryParam("path")

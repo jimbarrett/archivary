@@ -69,3 +69,7 @@ export function deleteDir(path) {
 export function checkPath(path) {
   return request(`/pages/check-path?path=${encodeURIComponent(path)}`)
 }
+
+export function reindex() {
+  return request('/reindex', { method: 'POST' })
+}

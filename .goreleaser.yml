@@ -1,0 +1,36 @@
+version: 2
+
+before:
+  hooks:
+    - cmd: npm ci
+      dir: frontend
+    - cmd: npm run build
+      dir: frontend
+
+builds:
+  - main: ./cmd/archivary
+    binary: archivary
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "archivary_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"

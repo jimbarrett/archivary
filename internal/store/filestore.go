@@ -367,5 +367,12 @@ func (fs *FileStore) PathExists(path string) bool {
 	return err == nil
 }
 
+// RebuildIndex re-scans the workspace directory and rebuilds the in-memory
+// page index. Call this before Reindex to pick up external file changes.
+func (fs *FileStore) RebuildIndex() error {
+	fs.pageIndex = make(map[string]string)
+	return fs.buildIndex()
+}
+
 // Ensure FileStore satisfies ContentStore at compile time.
 var _ ContentStore = (*FileStore)(nil)

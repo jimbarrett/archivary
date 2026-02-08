@@ -43,6 +43,7 @@ func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.
 	api.GET("/search", h.search)
 	api.GET("/tree", h.getTree)
 	api.GET("/pages/:id/backlinks", h.getBacklinks)
+	api.POST("/reindex", h.reindex)
 	api.PUT("/dirs/*", h.renameDir)
 	api.DELETE("/dirs/*", h.deleteDir)
 

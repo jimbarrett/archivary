@@ -31,7 +31,15 @@
     <div v-else class="tree-section">
       <div class="section-header">
         <span class="section-label">Pages</span>
-        <button class="new-page-btn" @click="showNewPage = true" title="New page">+</button>
+        <div class="section-actions">
+          <button class="icon-btn" @click="runReindex" :disabled="reindexing" title="Reindex">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 1v5h5" /><path d="M15 15v-5h-5" />
+              <path d="M2.3 10a6 6 0 0 0 10.3 1.5" /><path d="M13.7 6A6 6 0 0 0 3.4 4.5" />
+            </svg>
+          </button>
+          <button class="icon-btn" @click="showNewPage = true" title="New page">+</button>
+        </div>
       </div>
       <div v-if="tree && tree.children" class="tree">
         <TreeNode
@@ -57,7 +65,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getTree, searchPages } from '../lib/api.js'
+import { getTree, searchPages, reindex } from '../lib/api.js'
 import { treeVersion } from '../lib/events.js'
 import TreeNode from './TreeNode.vue'
 import NewPageDialog from './NewPageDialog.vue'
@@ -67,6 +75,7 @@ const tree = ref(null)
 const searchQuery = ref('')
 const searchResults = ref([])
 const showNewPage = ref(false)
+const reindexing = ref(false)
 
 let searchTimeout = null
 
@@ -123,6 +132,18 @@ function onCreatePage(path) {
   showNewPage.value = false
   // Navigate to the editor for a new page with the chosen path
   router.push({ name: 'new', query: { path } })
+}
+
+async function runReindex() {
+  reindexing.value = true
+  try {
+    await reindex()
+    await refreshTree()
+  } catch (e) {
+    console.error('Reindex failed:', e)
+  } finally {
+    reindexing.value = false
+  }
 }
 
 defineExpose({ refreshTree })
@@ -190,7 +211,12 @@ defineExpose({ refreshTree })
   color: var(--text-muted);
 }
 
-.new-page-btn {
+.section-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.icon-btn {
   background: none;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -205,10 +231,15 @@ defineExpose({ refreshTree })
   line-height: 1;
 }
 
-.new-page-btn:hover {
+.icon-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
   border-color: var(--accent-dim);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .tree-section {
