@@ -2,10 +2,8 @@ version: 2
 
 before:
   hooks:
-    - cmd: npm ci
-      dir: frontend
-    - cmd: npm run build
-      dir: frontend
+    - npm ci --prefix frontend
+    - npm run build --prefix frontend
 
 builds:
   - main: ./cmd/archivary
