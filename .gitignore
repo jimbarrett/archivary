@@ -1,6 +1,6 @@
 # Build output
 bin/
-archivary
+/archivary
 
 # Frontend
 frontend/node_modules/
