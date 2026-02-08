@@ -52,3 +52,20 @@ export function getTree() {
 export function getBacklinks(id) {
   return request(`/pages/${encodeURIComponent(id)}/backlinks`)
 }
+
+export function renameDir(path, newName) {
+  return request(`/dirs/${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name: newName }),
+  })
+}
+
+export function deleteDir(path) {
+  return request(`/dirs/${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function checkPath(path) {
+  return request(`/pages/check-path?path=${encodeURIComponent(path)}`)
+}

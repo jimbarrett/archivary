@@ -35,6 +35,7 @@ func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.
 	api := e.Group("/api")
 	api.GET("/health", h.health)
 	api.GET("/pages", h.listPages)
+	api.GET("/pages/check-path", h.checkPath)
 	api.GET("/pages/:id", h.getPage)
 	api.POST("/pages", h.createPage)
 	api.PUT("/pages/:id", h.updatePage)
@@ -42,6 +43,8 @@ func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.
 	api.GET("/search", h.search)
 	api.GET("/tree", h.getTree)
 	api.GET("/pages/:id/backlinks", h.getBacklinks)
+	api.PUT("/dirs/*", h.renameDir)
+	api.DELETE("/dirs/*", h.deleteDir)
 
 	// Serve frontend from embedded assets
 	serveFrontend(e)

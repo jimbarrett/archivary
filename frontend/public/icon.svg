@@ -8,31 +8,21 @@
       <stop offset="0%" stop-color="#4ade80"/>
       <stop offset="100%" stop-color="#22c55e"/>
     </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="6" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-    </filter>
+    <clipPath id="circleClip">
+      <circle cx="256" cy="256" r="248"/>
+    </clipPath>
   </defs>
   <!-- Dark circular background -->
   <circle cx="256" cy="256" r="248" fill="url(#bgGrad)"/>
   <circle cx="256" cy="256" r="248" fill="none" stroke="#334155" stroke-width="4"/>
-  <!-- Stylized A with a subtle glow -->
-  <g filter="url(#glow)">
+  <!-- Stylized A clipped to circle — legs extend to edges -->
+  <g clip-path="url(#circleClip)">
+    <!-- Unified A shape -->
     <path d="
-      M 256 88
-      L 148 400
-      L 188 400
-      L 212 328
-      L 300 328
-      L 324 400
-      L 364 400
-      Z
-      M 224 292
-      L 256 200
-      L 288 292
-      Z
+      M 256,24
+      L 440,504 L 320,504 L 300,350 L 212,350
+      L 192,504 L 72,504 Z
+      M 256,145 L 216,310 L 296,310 Z
     " fill="url(#letterGrad)" fill-rule="evenodd"/>
   </g>
-  <!-- Subtle accent line under the crossbar -->
-  <line x1="200" y1="340" x2="312" y2="340" stroke="#4ade80" stroke-width="3" opacity="0.3"/>
 </svg>

@@ -32,6 +32,14 @@
         />
       </div>
 
+      <div v-if="conflict" class="conflict-warning">
+        <p>A file already exists at <strong>{{ conflictPath }}</strong>.</p>
+        <div class="conflict-actions">
+          <button class="btn btn-secondary" @click="focusFilename">Change name</button>
+          <button class="btn btn-danger" @click="forceCreate">Overwrite</button>
+        </div>
+      </div>
+
       <div class="dialog-actions">
         <button class="btn btn-secondary" @click="$emit('close')">Cancel</button>
         <button class="btn btn-primary" @click="submit" :disabled="!isValid">Create</button>
@@ -42,7 +50,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { getTree } from '../lib/api.js'
+import { getTree, checkPath } from '../lib/api.js'
 
 const emit = defineEmits(['create', 'close'])
 
@@ -52,6 +60,8 @@ const newFolder = ref('')
 const dirs = ref([])
 const nameInput = ref(null)
 const newFolderInput = ref(null)
+const conflict = ref(false)
+const conflictPath = ref('')
 
 const isValid = computed(() => {
   const name = filename.value.trim()
@@ -61,11 +71,16 @@ const isValid = computed(() => {
 })
 
 watch(selectedFolder, (val) => {
+  conflict.value = false
   if (val === '__new__') {
     nextTick(() => {
       if (newFolderInput.value) newFolderInput.value.focus()
     })
   }
+})
+
+watch(filename, () => {
+  conflict.value = false
 })
 
 onMounted(async () => {
@@ -93,8 +108,7 @@ function extractDirs(node, prefix) {
   return result
 }
 
-function submit() {
-  if (!isValid.value) return
+function buildPath() {
   let name = filename.value.trim()
   if (!name.endsWith('.md')) {
     name += '.md'
@@ -105,8 +119,43 @@ function submit() {
   } else {
     dir = selectedFolder.value
   }
-  const path = dir ? `${dir}/${name}` : name
+  return dir ? `${dir}/${name}` : name
+}
+
+async function submit() {
+  if (!isValid.value) return
+  const path = buildPath()
+
+  // If we already showed the conflict and user clicked Create again, ignore
+  if (conflict.value) return
+
+  try {
+    const result = await checkPath(path)
+    if (result.exists) {
+      conflict.value = true
+      conflictPath.value = path
+      return
+    }
+  } catch (e) {
+    // If check fails, proceed anyway
+  }
+
   emit('create', path)
+}
+
+function forceCreate() {
+  emit('create', conflictPath.value)
+}
+
+function focusFilename() {
+  conflict.value = false
+  conflictPath.value = ''
+  nextTick(() => {
+    if (nameInput.value) {
+      nameInput.value.focus()
+      nameInput.value.select()
+    }
+  })
 }
 </script>
 
@@ -178,6 +227,25 @@ select.field-input {
   margin-bottom: 0;
 }
 
+.conflict-warning {
+  background: rgba(255, 80, 80, 0.1);
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.conflict-warning p {
+  font-size: 0.8rem;
+  color: var(--error);
+  margin: 0 0 0.5rem;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -212,5 +280,16 @@ select.field-input {
 .btn-primary:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.btn-danger {
+  background: none;
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.btn-danger:hover {
+  background: var(--error);
+  color: var(--bg-primary);
 }
 </style>

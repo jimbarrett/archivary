@@ -198,3 +198,55 @@ func (h *handlers) getBacklinks(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, backlinks)
 }
+
+// renameDirRequest is the JSON body for renaming a directory.
+type renameDirRequest struct {
+	Name string `json:"name"`
+}
+
+// PUT /api/dirs/*
+func (h *handlers) renameDir(c echo.Context) error {
+	dirPath := c.Param("*")
+	if dirPath == "" {
+		return errJSON(c, http.StatusBadRequest, "directory path is required")
+	}
+
+	var req renameDirRequest
+	if err := c.Bind(&req); err != nil {
+		return errJSON(c, http.StatusBadRequest, "invalid request body")
+	}
+	if req.Name == "" {
+		return errJSON(c, http.StatusBadRequest, "name is required")
+	}
+
+	if err := h.store.RenameDir(c.Request().Context(), dirPath, req.Name); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "renamed"})
+}
+
+// DELETE /api/dirs/*
+func (h *handlers) deleteDir(c echo.Context) error {
+	dirPath := c.Param("*")
+	if dirPath == "" {
+		return errJSON(c, http.StatusBadRequest, "directory path is required")
+	}
+
+	if err := h.store.DeleteDir(c.Request().Context(), dirPath); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// GET /api/pages/check-path?path=some/file.md
+func (h *handlers) checkPath(c echo.Context) error {
+	path := c.QueryParam("path")
+	if path == "" {
+		return errJSON(c, http.StatusBadRequest, "path query parameter is required")
+	}
+
+	exists := h.store.PathExists(path)
+	return c.JSON(http.StatusOK, map[string]bool{"exists": exists})
+}

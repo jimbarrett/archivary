@@ -289,5 +289,83 @@ func (fs *FileStore) BuildTree(_ context.Context) (*DirEntry, error) {
 	return root, nil
 }
 
+// RenameDir renames a directory on disk and updates all pageIndex entries
+// whose paths had the old directory prefix.
+func (fs *FileStore) RenameDir(_ context.Context, oldPath, newName string) error {
+	oldAbs := filepath.Join(fs.root, oldPath)
+	info, err := os.Stat(oldAbs)
+	if err != nil {
+		return fmt.Errorf("directory not found: %s", oldPath)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", oldPath)
+	}
+
+	// Build the new path: same parent, new name
+	parentDir := filepath.Dir(oldPath)
+	var newPath string
+	if parentDir == "." || parentDir == "" {
+		newPath = newName
+	} else {
+		newPath = parentDir + "/" + newName
+	}
+	newAbs := filepath.Join(fs.root, newPath)
+
+	// Check the target doesn't already exist
+	if _, err := os.Stat(newAbs); err == nil {
+		return fmt.Errorf("directory already exists: %s", newPath)
+	}
+
+	if err := os.Rename(oldAbs, newAbs); err != nil {
+		return fmt.Errorf("renaming directory: %w", err)
+	}
+
+	// Update pageIndex entries with old prefix
+	oldPrefix := oldPath + "/"
+	newPrefix := newPath + "/"
+	for id, relPath := range fs.pageIndex {
+		if strings.HasPrefix(relPath, oldPrefix) {
+			fs.pageIndex[id] = newPrefix + strings.TrimPrefix(relPath, oldPrefix)
+		}
+	}
+
+	return nil
+}
+
+// DeleteDir removes an empty directory. Returns an error if the directory
+// contains any markdown files.
+func (fs *FileStore) DeleteDir(_ context.Context, dirPath string) error {
+	absPath := filepath.Join(fs.root, dirPath)
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return fmt.Errorf("directory not found: %s", dirPath)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", dirPath)
+	}
+
+	// Check if any pages live under this directory
+	prefix := dirPath + "/"
+	for _, relPath := range fs.pageIndex {
+		if strings.HasPrefix(relPath, prefix) {
+			return fmt.Errorf("directory is not empty: contains pages")
+		}
+	}
+
+	if err := os.RemoveAll(absPath); err != nil {
+		return fmt.Errorf("removing directory: %w", err)
+	}
+
+	return nil
+}
+
+// PathExists checks whether a file exists at the given relative path
+// in the workspace.
+func (fs *FileStore) PathExists(path string) bool {
+	absPath := filepath.Join(fs.root, path)
+	_, err := os.Stat(absPath)
+	return err == nil
+}
+
 // Ensure FileStore satisfies ContentStore at compile time.
 var _ ContentStore = (*FileStore)(nil)

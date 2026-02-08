@@ -3,7 +3,7 @@
     <div
       v-if="node.is_dir"
       class="tree-dir"
-      @click="expanded = !expanded"
+      @click="onDirClick"
     >
       <span class="tree-arrow" :class="{ expanded }">&#9654;</span>
       <span class="tree-label">{{ node.name }}</span>
@@ -31,6 +31,9 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const props = defineProps({
   node: { type: Object, required: true },
@@ -46,6 +49,13 @@ const sortedChildren = computed(() => {
     return a.name.localeCompare(b.name)
   })
 })
+
+function onDirClick() {
+  expanded.value = !expanded.value
+  if (props.node.path) {
+    router.push({ name: 'directory', params: { path: props.node.path } })
+  }
+}
 </script>
 
 <style scoped>
