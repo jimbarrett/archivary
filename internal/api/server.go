@@ -12,9 +12,10 @@ import (
 	"github.com/jimbarrett/archivary/internal/config"
 	"github.com/jimbarrett/archivary/internal/index"
 	"github.com/jimbarrett/archivary/internal/store"
+	"github.com/jimbarrett/archivary/internal/sync"
 )
 
-func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.Indexer) error {
+func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.Indexer, syncMgr *sync.SyncManager) error {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -30,6 +31,7 @@ func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.
 	h := &handlers{
 		store:   fileStore,
 		indexer: indexer,
+		sync:    syncMgr,
 	}
 
 	api := e.Group("/api")
@@ -46,6 +48,19 @@ func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.
 	api.POST("/reindex", h.reindex)
 	api.PUT("/dirs/*", h.renameDir)
 	api.DELETE("/dirs/*", h.deleteDir)
+
+	// Sync routes
+	syncAPI := api.Group("/sync")
+	syncAPI.GET("/status", h.syncStatus)
+	syncAPI.GET("/status/:path", h.syncDirStatus)
+	syncAPI.POST("/now", h.syncNow)
+	syncAPI.POST("/now/:path", h.syncNowDir)
+	syncAPI.GET("/remotes", h.listRemotes)
+	syncAPI.POST("/remotes", h.addRemote)
+	syncAPI.PUT("/remotes/:path", h.updateRemote)
+	syncAPI.DELETE("/remotes/:path", h.removeRemote)
+	syncAPI.POST("/commit/:path", h.syncCommit)
+	syncAPI.GET("/log/:path", h.syncLog)
 
 	// Serve frontend from embedded assets
 	serveFrontend(e)

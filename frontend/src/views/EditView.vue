@@ -6,6 +6,7 @@
         <span v-else-if="isNew">New Page</span>
       </div>
       <div class="edit-actions">
+        <span v-if="committed" class="committed-indicator">Committed</span>
         <button class="btn btn-secondary" @click="cancel">Cancel</button>
         <button class="btn btn-primary" @click="save" :disabled="saving">
           {{ saving ? 'Saving...' : 'Save' }}
@@ -55,6 +56,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getPage, updatePage, createPage, getPages } from '../lib/api.js'
 import { refreshSidebarTree } from '../lib/events.js'
+import { isSynced } from '../lib/sync.js'
 import { renderMarkdown } from '../lib/markdown.js'
 import PageLinkPicker from '../components/PageLinkPicker.vue'
 
@@ -68,6 +70,7 @@ const route = useRoute()
 const page = ref(null)
 const content = ref('')
 const saving = ref(false)
+const committed = ref(false)
 const allPages = ref([])
 const showLinkPicker = ref(false)
 const textarea = ref(null)
@@ -107,10 +110,16 @@ async function save() {
         path: newPath.value,
       })
       refreshSidebarTree()
+      if (isSynced(newPath.value)) {
+        showCommitted()
+      }
       router.push({ name: 'page', params: { id: result.id } })
     } else {
       await updatePage(props.id, { content: content.value })
       refreshSidebarTree()
+      if (page.value && isSynced(page.value.path)) {
+        showCommitted()
+      }
       router.push({ name: 'page', params: { id: props.id } })
     }
   } catch (e) {
@@ -118,6 +127,11 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+function showCommitted() {
+  committed.value = true
+  setTimeout(() => { committed.value = false }, 2000)
 }
 
 function cancel() {
@@ -280,6 +294,20 @@ function insertPageLink(page) {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.committed-indicator {
+  font-size: 0.75rem;
+  color: var(--success);
+  font-weight: 600;
+  animation: fade-in-out 2s ease-in-out;
+}
+
+@keyframes fade-in-out {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .toolbar {

@@ -73,3 +73,57 @@ export function checkPath(path) {
 export function reindex() {
   return request('/reindex', { method: 'POST' })
 }
+
+// --- Sync API ---
+
+export function getSyncStatus() {
+  return request('/sync/status')
+}
+
+export function getSyncDirStatus(path) {
+  return request(`/sync/status/${encodeURIComponent(path)}`)
+}
+
+export function syncNow() {
+  return request('/sync/now', { method: 'POST' })
+}
+
+export function syncNowDir(path) {
+  return request(`/sync/now/${encodeURIComponent(path)}`, { method: 'POST' })
+}
+
+export function listRemotes() {
+  return request('/sync/remotes')
+}
+
+export function addRemote(data) {
+  return request('/sync/remotes', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function updateRemote(path, data) {
+  return request(`/sync/remotes/${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export function removeRemote(path) {
+  return request(`/sync/remotes/${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function getSyncLog(path, n = 20) {
+  return request(`/sync/log/${encodeURIComponent(path)}?n=${n}`)
+}
+
+export function syncCommit(path, message) {
+  return request(`/sync/commit/${encodeURIComponent(path)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+}

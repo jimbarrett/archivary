@@ -139,6 +139,9 @@ func (fs *FileStore) buildIndex() error {
 			return err
 		}
 		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".md" {
@@ -252,6 +255,9 @@ func (fs *FileStore) BuildTree(_ context.Context) (*DirEntry, error) {
 	filepath.WalkDir(fs.root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || !d.IsDir() || path == fs.root {
 			return nil
+		}
+		if d.Name() == ".git" {
+			return filepath.SkipDir
 		}
 		relDir, err := filepath.Rel(fs.root, path)
 		if err != nil {

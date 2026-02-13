@@ -32,10 +32,25 @@
       <div class="section-header">
         <span class="section-label">Pages</span>
         <div class="section-actions">
-          <button class="icon-btn" @click="runReindex" :disabled="reindexing" title="Reindex">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <button
+            v-if="hasSyncRemotes"
+            class="icon-btn"
+            @click="onSyncNow"
+            :disabled="syncing"
+            title="Sync all"
+          >
+            <svg
+              width="14" height="14" viewBox="0 0 16 16" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+              :class="{ spinning: syncing }"
+            >
               <path d="M1 1v5h5" /><path d="M15 15v-5h-5" />
               <path d="M2.3 10a6 6 0 0 0 10.3 1.5" /><path d="M13.7 6A6 6 0 0 0 3.4 4.5" />
+            </svg>
+          </button>
+          <button class="icon-btn" @click="runReindex" :disabled="reindexing" title="Reindex">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 1v6l4 2" /><circle cx="8" cy="8" r="7" />
             </svg>
           </button>
           <button class="icon-btn" @click="showNewPage = true" title="New page">+</button>
@@ -46,11 +61,23 @@
           v-for="node in sortedRootChildren"
           :key="node.path"
           :node="node"
+          :sync-status="syncStatus"
         />
       </div>
       <div v-else class="empty-state">
         No pages yet.
         <button class="link-btn" @click="showNewPage = true">Create one</button>
+      </div>
+
+      <div class="sidebar-footer">
+        <router-link to="/sync" class="footer-link" title="Sync settings">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 1v5h5" /><path d="M15 15v-5h-5" />
+            <path d="M2.3 10a6 6 0 0 0 10.3 1.5" /><path d="M13.7 6A6 6 0 0 0 3.4 4.5" />
+          </svg>
+          <span>Git Sync</span>
+          <span v-if="remoteCount" class="badge">{{ remoteCount }}</span>
+        </router-link>
       </div>
     </div>
 
@@ -63,10 +90,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getTree, searchPages, reindex } from '../lib/api.js'
 import { treeVersion } from '../lib/events.js'
+import { syncStatus, syncRemotes, syncing, startSyncPolling, stopSyncPolling, triggerSyncAll } from '../lib/sync.js'
 import TreeNode from './TreeNode.vue'
 import NewPageDialog from './NewPageDialog.vue'
 
@@ -87,8 +115,16 @@ const sortedRootChildren = computed(() => {
   })
 })
 
+const hasSyncRemotes = computed(() => syncRemotes.value.length > 0)
+const remoteCount = computed(() => syncRemotes.value.length)
+
 onMounted(async () => {
   await refreshTree()
+  startSyncPolling()
+})
+
+onUnmounted(() => {
+  stopSyncPolling()
 })
 
 // Refresh tree when other components signal changes
@@ -143,6 +179,15 @@ async function runReindex() {
     console.error('Reindex failed:', e)
   } finally {
     reindexing.value = false
+  }
+}
+
+async function onSyncNow() {
+  try {
+    await triggerSyncAll()
+    await refreshTree()
+  } catch (e) {
+    console.error('Sync failed:', e)
   }
 }
 
@@ -245,9 +290,12 @@ defineExpose({ refreshTree })
 .tree-section {
   flex: 1;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .tree {
+  flex: 1;
   padding-bottom: 1rem;
 }
 
@@ -301,5 +349,49 @@ defineExpose({ refreshTree })
 
 .link-btn:hover {
   text-decoration: underline;
+}
+
+.sidebar-footer {
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.footer-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.footer-link:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.badge {
+  margin-left: auto;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 8px;
+  min-width: 1.1rem;
+  text-align: center;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
 }
 </style>

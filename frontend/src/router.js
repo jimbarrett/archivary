@@ -4,6 +4,7 @@ import EditView from './views/EditView.vue'
 import SearchView from './views/SearchView.vue'
 import HomeView from './views/HomeView.vue'
 import DirectoryView from './views/DirectoryView.vue'
+import SyncView from './views/SyncView.vue'
 import NotFoundView from './views/NotFoundView.vue'
 
 const routes = [
@@ -13,6 +14,7 @@ const routes = [
   { path: '/page/:id/edit', name: 'edit', component: EditView, props: true },
   { path: '/new', name: 'new', component: EditView },
   { path: '/search', name: 'search', component: SearchView },
+  { path: '/sync', name: 'sync', component: SyncView },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
 ]
 

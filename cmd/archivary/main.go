@@ -9,6 +9,7 @@ import (
 	"github.com/jimbarrett/archivary/internal/config"
 	"github.com/jimbarrett/archivary/internal/index"
 	"github.com/jimbarrett/archivary/internal/store"
+	"github.com/jimbarrett/archivary/internal/sync"
 )
 
 func main() {
@@ -77,6 +78,14 @@ func run(port string, openBrowser bool) error {
 	}
 	fmt.Println(" done.")
 
+	// Initialize sync manager
+	syncMgr, err := sync.NewSyncManager(cfg.WorkspaceDir, cfg.DataDir, fileStore, indexer)
+	if err != nil {
+		return fmt.Errorf("initializing sync manager: %w", err)
+	}
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
 	// Open browser (the OS command is non-blocking, so it's fine to call before Start)
 	if openBrowser {
 		url := fmt.Sprintf("http://localhost:%s", port)
@@ -86,7 +95,7 @@ func run(port string, openBrowser bool) error {
 		}
 	}
 
-	return api.StartServer(cfg, fileStore, indexer)
+	return api.StartServer(cfg, fileStore, indexer, syncMgr)
 }
 
 func printUsage() {

@@ -3,10 +3,18 @@
     <div
       v-if="node.is_dir"
       class="tree-dir"
-      @click="onDirClick"
     >
-      <span class="tree-arrow" :class="{ expanded }">&#9654;</span>
-      <span class="tree-label">{{ node.name }}</span>
+      <span class="tree-arrow" :class="{ expanded }" @click.stop="toggleExpand">&#9654;</span>
+      <span class="tree-label" @click="navigateToDir">{{ node.name }}</span>
+      <span v-if="dirSyncStatus" class="sync-badge" :class="syncClass" :title="syncTitle">
+        <svg v-if="dirSyncStatus.error" width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="8" cy="8" r="7"/>
+        </svg>
+        <svg v-else width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M2 2v4h4" /><path d="M14 14v-4h-4" />
+          <path d="M3.5 10a5 5 0 0 0 8.5 1" /><path d="M12.5 6A5 5 0 0 0 4 5" />
+        </svg>
+      </span>
     </div>
 
     <router-link
@@ -24,6 +32,7 @@
         v-for="child in sortedChildren"
         :key="child.path"
         :node="child"
+        :sync-status="syncStatus"
       />
     </div>
   </div>
@@ -37,6 +46,7 @@ const router = useRouter()
 
 const props = defineProps({
   node: { type: Object, required: true },
+  syncStatus: { type: Object, default: () => ({}) },
 })
 
 const expanded = ref(true)
@@ -50,8 +60,34 @@ const sortedChildren = computed(() => {
   })
 })
 
-function onDirClick() {
+// Get sync status for this directory (only top-level synced dirs have entries)
+const dirSyncStatus = computed(() => {
+  if (!props.node.is_dir || !props.node.path) return null
+  return props.syncStatus[props.node.path] || null
+})
+
+const syncClass = computed(() => {
+  const s = dirSyncStatus.value
+  if (!s) return ''
+  if (s.error) return 'sync-error'
+  if (!s.clean) return 'sync-pending'
+  return 'sync-clean'
+})
+
+const syncTitle = computed(() => {
+  const s = dirSyncStatus.value
+  if (!s) return ''
+  if (s.error) return `Sync error: ${s.error}`
+  if (!s.clean) return 'Uncommitted changes'
+  if (s.ahead > 0) return `${s.ahead} commit(s) to push`
+  return 'Synced'
+})
+
+function toggleExpand() {
   expanded.value = !expanded.value
+}
+
+function navigateToDir() {
   if (props.node.path) {
     router.push({ name: 'directory', params: { path: props.node.path } })
   }
@@ -67,7 +103,6 @@ function onDirClick() {
   display: flex;
   align-items: center;
   padding: 0.25rem 0.75rem;
-  cursor: pointer;
   font-size: 0.85rem;
   color: var(--text-secondary);
 }
@@ -84,6 +119,21 @@ function onDirClick() {
   display: inline-block;
   width: 0.8rem;
   text-align: center;
+  cursor: pointer;
+  padding: 0.15rem 0;
+  border-radius: 2px;
+}
+
+.tree-arrow:hover {
+  color: var(--accent);
+}
+
+.tree-dir > .tree-label {
+  cursor: pointer;
+}
+
+.tree-dir > .tree-label:hover {
+  color: var(--accent);
 }
 
 .tree-arrow.expanded {
@@ -127,5 +177,25 @@ function onDirClick() {
 
 .tree-children {
   padding-left: 0.75rem;
+}
+
+.sync-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 0.35rem;
+}
+
+.sync-clean {
+  color: var(--success);
+}
+
+.sync-pending {
+  color: var(--warning);
+}
+
+.sync-error {
+  color: var(--error);
 }
 </style>
