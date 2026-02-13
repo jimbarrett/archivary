@@ -3,6 +3,11 @@
     <div
       v-if="node.is_dir"
       class="tree-dir"
+      :class="{ 'drag-over': isDragOver }"
+      @dragenter="onDragEnter"
+      @dragover.prevent="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
     >
       <span class="tree-arrow" :class="{ expanded }" @click.stop="toggleExpand">&#9654;</span>
       <span class="tree-label" @click="navigateToDir">{{ node.name }}</span>
@@ -22,6 +27,9 @@
       :to="{ name: 'page', params: { id: node.page_id } }"
       class="tree-file"
       active-class="active"
+      draggable="true"
+      @dragstart="onDragStart"
+      @dragend="onDragEnd"
     >
       <span class="tree-icon">&#9643;</span>
       <span class="tree-label">{{ node.name }}</span>
@@ -41,6 +49,8 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { movePage } from '../lib/api.js'
+import { refreshSidebarTree } from '../lib/events.js'
 
 const router = useRouter()
 
@@ -50,6 +60,8 @@ const props = defineProps({
 })
 
 const expanded = ref(true)
+const isDragOver = ref(false)
+let dragCounter = 0
 
 const sortedChildren = computed(() => {
   if (!props.node.children) return []
@@ -92,6 +104,83 @@ function navigateToDir() {
     router.push({ name: 'directory', params: { path: props.node.path } })
   }
 }
+
+// Drag and drop handlers
+function onDragStart(event) {
+  if (!props.node.page_id) return
+  
+  // Store the dragged page info
+  const dragData = {
+    pageId: props.node.page_id,
+    currentPath: props.node.path,
+    fileName: props.node.path.split('/').pop() // Get just the filename
+  }
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('application/json', JSON.stringify(dragData))
+  
+  // Add visual feedback
+  event.target.style.opacity = '0.5'
+}
+
+function onDragEnd(event) {
+  event.target.style.opacity = '1'
+}
+
+function onDragEnter(event) {
+  if (!props.node.is_dir) return
+  const types = event.dataTransfer.types
+  if (!types.includes('application/json')) return
+
+  dragCounter++
+  isDragOver.value = true
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function onDragOver(event) {
+  if (!props.node.is_dir) return
+  const types = event.dataTransfer.types
+  if (!types.includes('application/json')) return
+
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function onDragLeave() {
+  dragCounter--
+  if (dragCounter <= 0) {
+    dragCounter = 0
+    isDragOver.value = false
+  }
+}
+
+async function onDrop(event) {
+  event.preventDefault()
+  dragCounter = 0
+  isDragOver.value = false
+  
+  if (!props.node.is_dir) return
+  
+  try {
+    const dragData = JSON.parse(event.dataTransfer.getData('application/json'))
+    const { pageId, currentPath, fileName } = dragData
+    
+    // Build new path: directory path + filename
+    const newPath = props.node.path ? `${props.node.path}/${fileName}` : fileName
+    
+    // Don't move if it's already in this directory
+    if (currentPath === newPath) return
+    
+    // Call the API to move the page
+    await movePage(pageId, newPath)
+    
+    // Notify the tree to refresh
+    refreshSidebarTree()
+    
+  } catch (error) {
+    console.error('Failed to move page:', error)
+    alert(`Failed to move file: ${error.message}`)
+  }
+}
 </script>
 
 <style scoped>
@@ -110,6 +199,13 @@ function navigateToDir() {
 .tree-dir:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.tree-dir.drag-over {
+  background: rgba(122, 162, 247, 0.15);
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  color: var(--accent);
 }
 
 .tree-arrow {

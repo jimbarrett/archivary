@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
 	"github.com/jimbarrett/archivary/internal/markdown"
 )
 
@@ -338,6 +339,21 @@ func (fs *FileStore) RenameDir(_ context.Context, oldPath, newName string) error
 	return nil
 }
 
+// CreateDir creates a new directory at the given relative path.
+func (fs *FileStore) CreateDir(_ context.Context, dirPath string) error {
+	absPath := filepath.Join(fs.root, dirPath)
+
+	// Check it doesn't already exist
+	if _, err := os.Stat(absPath); err == nil {
+		return fmt.Errorf("already exists: %s", dirPath)
+	}
+
+	if err := os.MkdirAll(absPath, 0o755); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+	return nil
+}
+
 // DeleteDir removes an empty directory. Returns an error if the directory
 // contains any markdown files.
 func (fs *FileStore) DeleteDir(_ context.Context, dirPath string) error {
@@ -371,6 +387,42 @@ func (fs *FileStore) PathExists(path string) bool {
 	absPath := filepath.Join(fs.root, path)
 	_, err := os.Stat(absPath)
 	return err == nil
+}
+
+// MovePage moves a page file to a new path within the workspace.
+// It handles the filesystem move and updates the pageIndex.
+// The new path must include the filename (e.g., "new-dir/file.md").
+func (fs *FileStore) MovePage(ctx context.Context, id string, newPath string) error {
+	oldPath, ok := fs.pageIndex[id]
+	if !ok {
+		return fmt.Errorf("page not found: %s", id)
+	}
+
+	if oldPath == newPath {
+		return nil // No-op
+	}
+
+	oldAbs := filepath.Join(fs.root, oldPath)
+	newAbs := filepath.Join(fs.root, newPath)
+
+	// Check if destination already exists
+	if _, err := os.Stat(newAbs); err == nil {
+		return fmt.Errorf("destination already exists: %s", newPath)
+	}
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(newAbs), 0755); err != nil {
+		return fmt.Errorf("creating parent directory: %w", err)
+	}
+
+	// Move the file
+	if err := os.Rename(oldAbs, newAbs); err != nil {
+		return fmt.Errorf("moving file: %w", err)
+	}
+
+	// Update pageIndex
+	fs.pageIndex[id] = newPath
+	return nil
 }
 
 // RebuildIndex re-scans the workspace directory and rebuilds the in-memory

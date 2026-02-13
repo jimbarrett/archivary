@@ -41,6 +41,13 @@ export function deletePage(id) {
   })
 }
 
+export function movePage(id, newPath) {
+  return request(`/pages/${encodeURIComponent(id)}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ new_path: newPath }),
+  })
+}
+
 export function searchPages(query) {
   return request(`/search?q=${encodeURIComponent(query)}`)
 }
@@ -51,6 +58,13 @@ export function getTree() {
 
 export function getBacklinks(id) {
   return request(`/pages/${encodeURIComponent(id)}/backlinks`)
+}
+
+export function createDir(path) {
+  return request('/dirs', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  })
 }
 
 export function renameDir(path, newName) {

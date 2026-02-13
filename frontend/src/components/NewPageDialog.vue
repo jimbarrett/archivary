@@ -1,48 +1,76 @@
 <template>
   <div class="dialog-overlay" @click.self="$emit('close')">
     <div class="dialog">
-      <h3>New Page</h3>
+      <div class="mode-tabs">
+        <button :class="{ active: mode === 'page' }" @click="mode = 'page'">New Page</button>
+        <button :class="{ active: mode === 'dir' }" @click="mode = 'dir'">New Directory</button>
+      </div>
 
-      <label class="field-label">Filename</label>
-      <input
-        ref="nameInput"
-        v-model="filename"
-        type="text"
-        placeholder="my-page.md"
-        class="field-input"
-        @keydown.enter="submit"
-        @keydown.escape="$emit('close')"
-      />
-
-      <label class="field-label">Folder</label>
-      <select v-model="selectedFolder" class="field-input" @keydown.enter="submit">
-        <option value="">/ (root)</option>
-        <option v-for="dir in dirs" :key="dir" :value="dir">{{ dir }}</option>
-        <option value="__new__">+ New directory...</option>
-      </select>
-
-      <div v-if="selectedFolder === '__new__'" class="new-folder-wrapper">
+      <template v-if="mode === 'page'">
+        <label class="field-label">Filename</label>
         <input
-          ref="newFolderInput"
-          v-model="newFolder"
+          ref="nameInput"
+          v-model="filename"
           type="text"
-          placeholder="path/to/folder"
+          placeholder="my-page.md"
           class="field-input"
           @keydown.enter="submit"
+          @keydown.escape="$emit('close')"
         />
-      </div>
 
-      <div v-if="conflict" class="conflict-warning">
-        <p>A file already exists at <strong>{{ conflictPath }}</strong>.</p>
-        <div class="conflict-actions">
-          <button class="btn btn-secondary" @click="focusFilename">Change name</button>
-          <button class="btn btn-danger" @click="forceCreate">Overwrite</button>
+        <label class="field-label">Folder</label>
+        <select v-model="selectedFolder" class="field-input" @keydown.enter="submit">
+          <option value="">/ (root)</option>
+          <option v-for="dir in dirs" :key="dir" :value="dir">{{ dir }}</option>
+          <option value="__new__">+ New directory...</option>
+        </select>
+
+        <div v-if="selectedFolder === '__new__'" class="new-folder-wrapper">
+          <input
+            ref="newFolderInput"
+            v-model="newFolder"
+            type="text"
+            placeholder="path/to/folder"
+            class="field-input"
+            @keydown.enter="submit"
+          />
         </div>
-      </div>
+
+        <div v-if="conflict" class="conflict-warning">
+          <p>A file already exists at <strong>{{ conflictPath }}</strong>.</p>
+          <div class="conflict-actions">
+            <button class="btn btn-secondary" @click="focusFilename">Change name</button>
+            <button class="btn btn-danger" @click="forceCreate">Overwrite</button>
+          </div>
+        </div>
+      </template>
+
+      <template v-else>
+        <label class="field-label">Directory Name</label>
+        <input
+          ref="dirNameInput"
+          v-model="dirName"
+          type="text"
+          placeholder="my-directory"
+          class="field-input"
+          @keydown.enter="submit"
+          @keydown.escape="$emit('close')"
+        />
+
+        <label class="field-label">Parent Folder</label>
+        <select v-model="dirParent" class="field-input" @keydown.enter="submit">
+          <option value="">/ (root)</option>
+          <option v-for="dir in dirs" :key="dir" :value="dir">{{ dir }}</option>
+        </select>
+      </template>
+
+      <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="dialog-actions">
         <button class="btn btn-secondary" @click="$emit('close')">Cancel</button>
-        <button class="btn btn-primary" @click="submit" :disabled="!isValid">Create</button>
+        <button class="btn btn-primary" @click="submit" :disabled="!isValid || submitting">
+          {{ submitting ? 'Creating...' : 'Create' }}
+        </button>
       </div>
     </div>
   </div>
@@ -50,24 +78,47 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { getTree, checkPath } from '../lib/api.js'
+import { getTree, checkPath, createPage, createDir } from '../lib/api.js'
+import { refreshSidebarTree } from '../lib/events.js'
+import { useRouter } from 'vue-router'
 
-const emit = defineEmits(['create', 'close'])
+const router = useRouter()
 
+const emit = defineEmits(['close', 'created'])
+
+const mode = ref('page')
 const filename = ref('')
 const selectedFolder = ref('')
 const newFolder = ref('')
+const dirName = ref('')
+const dirParent = ref('')
 const dirs = ref([])
 const nameInput = ref(null)
+const dirNameInput = ref(null)
 const newFolderInput = ref(null)
 const conflict = ref(false)
 const conflictPath = ref('')
+const error = ref('')
+const submitting = ref(false)
 
 const isValid = computed(() => {
-  const name = filename.value.trim()
-  if (!name.length) return false
-  if (selectedFolder.value === '__new__' && !newFolder.value.trim().length) return false
-  return true
+  if (mode.value === 'page') {
+    const name = filename.value.trim()
+    if (!name.length) return false
+    if (selectedFolder.value === '__new__' && !newFolder.value.trim().length) return false
+    return true
+  } else {
+    return dirName.value.trim().length > 0
+  }
+})
+
+watch(mode, (val) => {
+  error.value = ''
+  conflict.value = false
+  nextTick(() => {
+    if (val === 'page' && nameInput.value) nameInput.value.focus()
+    if (val === 'dir' && dirNameInput.value) dirNameInput.value.focus()
+  })
 })
 
 watch(selectedFolder, (val) => {
@@ -108,7 +159,7 @@ function extractDirs(node, prefix) {
   return result
 }
 
-function buildPath() {
+function buildPagePath() {
   let name = filename.value.trim()
   if (!name.endsWith('.md')) {
     name += '.md'
@@ -122,9 +173,43 @@ function buildPath() {
   return dir ? `${dir}/${name}` : name
 }
 
+function buildDirPath() {
+  const name = dirName.value.trim()
+  const parent = dirParent.value
+  return parent ? `${parent}/${name}` : name
+}
+
 async function submit() {
-  if (!isValid.value) return
-  const path = buildPath()
+  if (!isValid.value || submitting.value) return
+  error.value = ''
+  submitting.value = true
+
+  try {
+    if (mode.value === 'dir') {
+      await submitDir()
+    } else {
+      await submitPage()
+    }
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function submitDir() {
+  const path = buildDirPath()
+  try {
+    await createDir(path)
+    refreshSidebarTree()
+    emit('created')
+    emit('close')
+    router.push({ name: 'directory', params: { path } })
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function submitPage() {
+  const path = buildPagePath()
 
   // If we already showed the conflict and user clicked Create again, ignore
   if (conflict.value) return
@@ -140,11 +225,31 @@ async function submit() {
     // If check fails, proceed anyway
   }
 
-  emit('create', path)
+  try {
+    const result = await createPage({ content: '', path })
+    refreshSidebarTree()
+    emit('created')
+    emit('close')
+    router.push({ name: 'edit', params: { id: result.id } })
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
-function forceCreate() {
-  emit('create', conflictPath.value)
+async function forceCreate() {
+  submitting.value = true
+  error.value = ''
+  try {
+    const result = await createPage({ content: '', path: conflictPath.value })
+    refreshSidebarTree()
+    emit('created')
+    emit('close')
+    router.push({ name: 'edit', params: { id: result.id } })
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    submitting.value = false
+  }
 }
 
 function focusFilename() {
@@ -182,10 +287,33 @@ function focusFilename() {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
-.dialog h3 {
-  font-size: 1rem;
-  font-weight: 600;
+.mode-tabs {
+  display: flex;
+  gap: 0;
   margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mode-tabs button {
+  flex: 1;
+  padding: 0.4rem 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+}
+
+.mode-tabs button.active {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+}
+
+.mode-tabs button:not(.active):hover {
+  background: var(--bg-hover);
 }
 
 .field-label {
@@ -244,6 +372,16 @@ select.field-input {
 .conflict-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.error-msg {
+  background: rgba(255, 80, 80, 0.1);
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  color: var(--error);
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
 }
 
 .dialog-actions {

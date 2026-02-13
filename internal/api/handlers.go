@@ -184,6 +184,56 @@ func (h *handlers) deletePage(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+// movePageRequest is the JSON body for moving a page to a new path.
+type movePageRequest struct {
+	NewPath string `json:"new_path"`
+}
+
+// POST /api/pages/:id/move
+func (h *handlers) movePage(c echo.Context) error {
+	id := c.Param("id")
+	ctx := c.Request().Context()
+
+	// Get the old path for sync notification
+	oldPage, err := h.store.GetPage(ctx, id)
+	if err != nil {
+		return errJSON(c, http.StatusNotFound, "page not found")
+	}
+	oldPath := oldPage.Path
+
+	var req movePageRequest
+	if err := c.Bind(&req); err != nil {
+		return errJSON(c, http.StatusBadRequest, "invalid request body")
+	}
+	if req.NewPath == "" {
+		return errJSON(c, http.StatusBadRequest, "new_path is required")
+	}
+
+	// Move the page file
+	if err := h.store.MovePage(ctx, id, req.NewPath); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+
+	// Get the updated page
+	moved, err := h.store.GetPage(ctx, id)
+	if err != nil {
+		return errJSON(c, http.StatusInternalServerError, err.Error())
+	}
+
+	// Update the index
+	if err := h.indexer.IndexPage(ctx, moved); err != nil {
+		return errJSON(c, http.StatusInternalServerError, err.Error())
+	}
+
+	// Notify sync manager about the move (delete from old, create at new)
+	if h.sync != nil {
+		h.sync.NotifyChange(oldPath, "delete")
+		h.sync.NotifyChange(req.NewPath, "create")
+	}
+
+	return c.JSON(http.StatusOK, moved)
+}
+
 // GET /api/search?q=query
 func (h *handlers) search(c echo.Context) error {
 	q := c.QueryParam("q")
@@ -221,6 +271,28 @@ func (h *handlers) getBacklinks(c echo.Context) error {
 		backlinks = []store.Page{}
 	}
 	return c.JSON(http.StatusOK, backlinks)
+}
+
+// createDirRequest is the JSON body for creating a directory.
+type createDirRequest struct {
+	Path string `json:"path"`
+}
+
+// POST /api/dirs
+func (h *handlers) createDir(c echo.Context) error {
+	var req createDirRequest
+	if err := c.Bind(&req); err != nil {
+		return errJSON(c, http.StatusBadRequest, "invalid request body")
+	}
+	if req.Path == "" {
+		return errJSON(c, http.StatusBadRequest, "path is required")
+	}
+
+	if err := h.store.CreateDir(c.Request().Context(), req.Path); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "created", "path": req.Path})
 }
 
 // renameDirRequest is the JSON body for renaming a directory.

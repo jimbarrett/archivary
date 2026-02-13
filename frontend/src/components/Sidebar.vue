@@ -56,7 +56,15 @@
           <button class="icon-btn" @click="showNewPage = true" title="New page">+</button>
         </div>
       </div>
-      <div v-if="tree && tree.children" class="tree">
+      <div
+        v-if="tree && tree.children"
+        class="tree"
+        :class="{ 'drag-over-root': isDragOverRoot }"
+        @dragenter="onRootDragEnter"
+        @dragover.prevent="onRootDragOver"
+        @dragleave="onRootDragLeave"
+        @drop="onRootDrop"
+      >
         <TreeNode
           v-for="node in sortedRootChildren"
           :key="node.path"
@@ -83,7 +91,7 @@
 
     <NewPageDialog
       v-if="showNewPage"
-      @create="onCreatePage"
+      @created="onCreated"
       @close="showNewPage = false"
     />
   </aside>
@@ -92,7 +100,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getTree, searchPages, reindex } from '../lib/api.js'
+import { getTree, searchPages, reindex, movePage } from '../lib/api.js'
 import { treeVersion } from '../lib/events.js'
 import { syncStatus, syncRemotes, syncing, startSyncPolling, stopSyncPolling, triggerSyncAll } from '../lib/sync.js'
 import TreeNode from './TreeNode.vue'
@@ -104,6 +112,8 @@ const searchQuery = ref('')
 const searchResults = ref([])
 const showNewPage = ref(false)
 const reindexing = ref(false)
+const isDragOverRoot = ref(false)
+let rootDragCounter = 0
 
 let searchTimeout = null
 
@@ -164,10 +174,9 @@ async function refreshTree() {
   }
 }
 
-function onCreatePage(path) {
+function onCreated() {
   showNewPage.value = false
-  // Navigate to the editor for a new page with the chosen path
-  router.push({ name: 'new', query: { path } })
+  refreshTree()
 }
 
 async function runReindex() {
@@ -188,6 +197,55 @@ async function onSyncNow() {
     await refreshTree()
   } catch (e) {
     console.error('Sync failed:', e)
+  }
+}
+
+// Root directory drag and drop
+function onRootDragEnter(event) {
+  const types = event.dataTransfer.types
+  if (!types.includes('application/json')) return
+
+  rootDragCounter++
+  isDragOverRoot.value = true
+}
+
+function onRootDragOver(event) {
+  const types = event.dataTransfer.types
+  if (!types.includes('application/json')) return
+
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function onRootDragLeave() {
+  rootDragCounter--
+  if (rootDragCounter <= 0) {
+    rootDragCounter = 0
+    isDragOverRoot.value = false
+  }
+}
+
+async function onRootDrop(event) {
+  event.preventDefault()
+  rootDragCounter = 0
+  isDragOverRoot.value = false
+  
+  try {
+    const dragData = JSON.parse(event.dataTransfer.getData('application/json'))
+    const { pageId, currentPath, fileName } = dragData
+    
+    // If the file is already in root, don't do anything
+    if (!currentPath.includes('/')) return
+    
+    // Move to root (no directory prefix)
+    await movePage(pageId, fileName)
+    
+    // Refresh the tree
+    await refreshTree()
+    
+  } catch (error) {
+    console.error('Failed to move page:', error)
+    alert(`Failed to move file: ${error.message}`)
   }
 }
 
@@ -297,6 +355,12 @@ defineExpose({ refreshTree })
 .tree {
   flex: 1;
   padding-bottom: 1rem;
+}
+
+.tree.drag-over-root {
+  background: rgba(122, 162, 247, 0.1);
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
 }
 
 .search-results {
