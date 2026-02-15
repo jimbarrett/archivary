@@ -8,12 +8,14 @@ before:
 builds:
   - main: ./cmd/archivary
     binary: archivary
+    ldflags:
+      - -s -w -X main.version={{.Tag}}
     env:
       - CGO_ENABLED=0
     goos:
       - linux
-      - darwin
-      - windows
+      # - darwin
+      # - windows
     goarch:
       - amd64
       - arm64
@@ -29,12 +31,27 @@ release:
     Download the binary for your platform below, then:
 
     ```bash
-    # Linux / macOS
+    mkdir -p ~/.local/bin
     chmod +x archivary_*
-    sudo mv archivary_* /usr/local/bin/archivary
+    mv archivary_* ~/.local/bin/archivary
+    ```
 
-    # Then run from anywhere
+    If `~/.local/bin` is not on your PATH, add this to your shell profile:
+
+    ```bash
+    export PATH="$HOME/.local/bin:$PATH"
+    ```
+
+    Then run from anywhere:
+
+    ```bash
     archivary serve
+    ```
+
+    To update an existing install:
+
+    ```bash
+    archivary update
     ```
 
     See the [README](https://github.com/jimbarrett/archivary#installation) for full details.

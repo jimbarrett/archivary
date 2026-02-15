@@ -10,7 +10,10 @@ import (
 	"github.com/jimbarrett/archivary/internal/index"
 	"github.com/jimbarrett/archivary/internal/store"
 	"github.com/jimbarrett/archivary/internal/sync"
+	"github.com/jimbarrett/archivary/internal/update"
 )
+
+var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -34,6 +37,41 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "version":
+		fmt.Printf("archivary %s\n", version)
+		info, err := update.Check(version)
+		if err == nil && info.UpdateAvailable {
+			fmt.Printf("Update available: %s (%s)\n", info.LatestVersion, info.ReleaseURL)
+		} else if err == nil {
+			fmt.Println("You are running the latest version.")
+		}
+	case "update":
+		fmt.Println("Checking for updates...")
+		info, err := update.Check(version)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		if !info.UpdateAvailable {
+			fmt.Printf("Already up to date (%s).\n", version)
+			return
+		}
+		if info.DownloadURL == "" {
+			fmt.Fprintf(os.Stderr, "No binary available for your platform (%s).\n", update.AssetName(info.LatestVersion))
+			os.Exit(1)
+		}
+		binaryPath, writable := update.CanWriteBinary()
+		if !writable {
+			fmt.Fprintf(os.Stderr, "Cannot write to %s (permission denied).\n", binaryPath)
+			fmt.Fprintf(os.Stderr, "Run this command to update manually:\n  %s\n", update.ManualUpdateCommand(info.DownloadURL, binaryPath))
+			os.Exit(1)
+		}
+		fmt.Printf("Downloading %s for %s...\n", info.LatestVersion, update.AssetName(info.LatestVersion))
+		if err := update.Apply(info.DownloadURL); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Updated successfully. Restart archivary to use the new version.")
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -103,5 +141,7 @@ func printUsage() {
 
 Commands:
   serve [port] [--no-browser]  Start the web server (default port: 8080)
+  version                      Show version and check for updates
+  update                       Update to the latest version
 `)
 }

@@ -9,7 +9,7 @@ build-frontend:
 
 # Build the Go binary
 build-backend: build-frontend
-	go build -o bin/archivary ./cmd/archivary
+	go build -ldflags "-X main.version=dev" -o bin/archivary ./cmd/archivary
 
 # Run the built binary
 run: build

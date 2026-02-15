@@ -18,16 +18,27 @@ Runs as a single binary — no external dependencies required.
 
 Download the latest binary for your platform from the [Releases](https://github.com/jimbarrett/archivary/releases) page.
 
-### Linux / macOS
+### Linux
 
 ```bash
+mkdir -p ~/.local/bin
 chmod +x archivary_*
-sudo mv archivary_* /usr/local/bin/archivary
+mv archivary_* ~/.local/bin/archivary
 ```
 
-### Windows
+If `~/.local/bin` is not on your PATH, add this to your `~/.bashrc` or `~/.zshrc`:
 
-Rename the downloaded file to `archivary.exe` and move it to a directory in your `PATH`.
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Updating
+
+```bash
+archivary update
+```
+
+This checks GitHub for the latest release, downloads it, and replaces the binary in place.
 
 ### Verify
 
