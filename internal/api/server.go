@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 	"github.com/jimbarrett/archivary/internal/sync"
 )
 
-func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.Indexer, syncMgr *sync.SyncManager) error {
+func StartServer(ctx context.Context, cfg *config.Config, fileStore *store.FileStore, indexer *index.Indexer, syncMgr *sync.SyncManager) error {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -71,7 +72,24 @@ func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.
 	serveFrontend(e)
 
 	fmt.Printf("Archivary running at http://localhost:%s\n", cfg.Port)
-	return e.Start(":" + cfg.Port)
+
+	// Start server in a goroutine so we can listen for context cancellation
+	errCh := make(chan error, 1)
+	go func() {
+		if err := e.Start(":" + cfg.Port); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*1e9) // 5 seconds
+		defer cancel()
+		return e.Shutdown(shutdownCtx)
+	}
 }
 
 func serveFrontend(e *echo.Echo) {

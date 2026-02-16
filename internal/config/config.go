@@ -94,6 +94,24 @@ func defaultDataDir() (string, error) {
 	}
 }
 
+// PidFile returns the path to the PID file in the data directory.
+func PidFile() string {
+	dir, err := defaultDataDir()
+	if err != nil {
+		return "archivary.pid"
+	}
+	return filepath.Join(dir, "archivary.pid")
+}
+
+// LogFile returns the path to the log file in the data directory.
+func LogFile() string {
+	dir, err := defaultDataDir()
+	if err != nil {
+		return "archivary.log"
+	}
+	return filepath.Join(dir, "archivary.log")
+}
+
 // FindAvailablePort tries ports starting at startPort and returns the first
 // one that is available. It checks up to 100 ports before giving up.
 func FindAvailablePort(startPort int) (int, error) {
