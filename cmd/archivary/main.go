@@ -23,7 +23,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "serve":
-		port := "8080"
+		port := ""
 		openBrowser := true
 		for _, arg := range os.Args[2:] {
 			switch arg {
@@ -84,6 +84,15 @@ func run(port string, openBrowser bool) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+
+	if port == "" {
+		// Auto-select an available port starting at the default.
+		found, err := config.FindAvailablePort(config.DefaultPort)
+		if err != nil {
+			return fmt.Errorf("finding available port: %w", err)
+		}
+		port = fmt.Sprintf("%d", found)
+	}
 	cfg.Port = port
 
 	fmt.Printf("Workspace: %s\n", cfg.WorkspaceDir)
@@ -140,7 +149,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `Usage: archivary <command>
 
 Commands:
-  serve [port] [--no-browser]  Start the web server (default port: 8080)
+  serve [port] [--no-browser]  Start the web server (default: auto-select from 10200)
   version                      Show version and check for updates
   update                       Update to the latest version
 `)

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	gosync "sync"
 	"time"
@@ -27,7 +28,7 @@ type DirSyncStatus struct {
 	Error    string    `json:"error,omitempty"`
 }
 
-// SyncManager orchestrates git sync for workspace directories.
+// SyncManager orchestrates git sync for the workspace.
 type SyncManager struct {
 	repos        map[string]*git.GitRepo
 	config       *SyncConfig
@@ -38,16 +39,13 @@ type SyncManager struct {
 	stopCh       chan struct{}
 	mu           gosync.Mutex
 
-	// lastPush tracks the last push time per repo path.
-	lastPush map[string]time.Time
-	// lastError tracks the last error per repo path.
+	lastPush  map[string]time.Time
 	lastError map[string]string
-	// lastSync tracks the last successful sync time per repo path.
-	lastSync map[string]time.Time
+	lastSync  map[string]time.Time
 }
 
-// NewSyncManager creates a SyncManager, loads existing config, and opens any
-// already-configured repos.
+// NewSyncManager creates a SyncManager, loads existing config, and opens the
+// workspace repo if configured.
 func NewSyncManager(workspaceDir, dataDir string, s *store.FileStore, idx *index.Indexer) (*SyncManager, error) {
 	cfg, err := LoadSyncConfig(dataDir)
 	if err != nil {
@@ -60,23 +58,26 @@ func NewSyncManager(workspaceDir, dataDir string, s *store.FileStore, idx *index
 		dataDir:      dataDir,
 		workspaceDir: workspaceDir,
 		store:        s,
-		indexer:       idx,
+		indexer:      idx,
 		stopCh:       make(chan struct{}),
 		lastPush:     make(map[string]time.Time),
 		lastError:    make(map[string]string),
 		lastSync:     make(map[string]time.Time),
 	}
 
-	// Open repos for existing config entries.
+	// Open the workspace root repo if configured.
 	for _, rc := range cfg.Remotes {
-		dir := filepath.Join(workspaceDir, rc.Path)
-		repo, err := git.Open(dir)
-		if err != nil {
-			log.Printf("sync: could not open repo at %s: %v", rc.Path, err)
-			m.lastError[rc.Path] = err.Error()
-			continue
+		if rc.Path == "." {
+			repo, err := git.Open(workspaceDir)
+			if err != nil {
+				log.Printf("sync: could not open workspace repo: %v", err)
+				m.lastError["."] = err.Error()
+			} else {
+				m.repos["."] = repo
+			}
+		} else {
+			log.Printf("sync: ignoring legacy per-directory remote: %s", rc.Path)
 		}
-		m.repos[rc.Path] = repo
 	}
 
 	return m, nil
@@ -87,28 +88,27 @@ func (m *SyncManager) Start() {
 	go m.backgroundLoop()
 }
 
-// Stop signals the background goroutine to stop and does a final push of all
-// repos that have auto-push enabled.
+// Stop signals the background goroutine to stop and does a final push.
 func (m *SyncManager) Stop() {
 	close(m.stopCh)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, rc := range m.config.Remotes {
-		if !rc.AutoPush {
+		if rc.Path != "." || !rc.AutoPush {
 			continue
 		}
-		repo, ok := m.repos[rc.Path]
+		repo, ok := m.repos["."]
 		if !ok {
 			continue
 		}
 		if err := repo.Push(); err != nil {
-			log.Printf("sync: final push for %s failed: %v", rc.Path, err)
+			log.Printf("sync: final push failed: %v", err)
 		}
 	}
 }
 
-// backgroundLoop ticks every minute and pushes repos whose interval has elapsed.
+// backgroundLoop ticks every minute and pushes if the interval has elapsed.
 func (m *SyncManager) backgroundLoop() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -120,24 +120,24 @@ func (m *SyncManager) backgroundLoop() {
 		case <-ticker.C:
 			m.mu.Lock()
 			for _, rc := range m.config.Remotes {
-				if !rc.AutoPush || rc.PushIntervalMinutes <= 0 {
+				if rc.Path != "." || !rc.AutoPush || rc.PushIntervalMinutes <= 0 {
 					continue
 				}
-				repo, ok := m.repos[rc.Path]
+				repo, ok := m.repos["."]
 				if !ok {
 					continue
 				}
-				last := m.lastPush[rc.Path]
+				last := m.lastPush["."]
 				if time.Since(last) < time.Duration(rc.PushIntervalMinutes)*time.Minute {
 					continue
 				}
 				if err := repo.Push(); err != nil {
-					m.lastError[rc.Path] = err.Error()
-					log.Printf("sync: auto-push %s failed: %v", rc.Path, err)
+					m.lastError["."] = err.Error()
+					log.Printf("sync: auto-push failed: %v", err)
 				} else {
-					m.lastError[rc.Path] = ""
-					m.lastPush[rc.Path] = time.Now()
-					m.lastSync[rc.Path] = time.Now()
+					m.lastError["."] = ""
+					m.lastPush["."] = time.Now()
+					m.lastSync["."] = time.Now()
 				}
 			}
 			m.mu.Unlock()
@@ -145,83 +145,80 @@ func (m *SyncManager) backgroundLoop() {
 	}
 }
 
-// SyncAll pulls then pushes all configured repos.
+// SyncAll pulls then pushes the workspace repo.
 func (m *SyncManager) SyncAll() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	var errs []string
-	for _, rc := range m.config.Remotes {
-		if err := m.syncRepo(rc.Path); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", rc.Path, err))
-		}
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("sync errors: %s", strings.Join(errs, "; "))
-	}
-	return nil
+	return m.syncRepo()
 }
 
-// SyncDir pulls and pushes a single directory.
+// SyncDir pulls and pushes the workspace repo. Path must be ".".
 func (m *SyncManager) SyncDir(path string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.syncRepo(path)
+	return m.syncRepo()
 }
 
-// syncRepo does pull + push for one repo. Must be called with mu held.
-func (m *SyncManager) syncRepo(path string) error {
-	repo, ok := m.repos[path]
+// syncRepo does pull + push for the workspace repo. Must be called with mu held.
+func (m *SyncManager) syncRepo() error {
+	repo, ok := m.repos["."]
 	if !ok {
-		return fmt.Errorf("no synced repo at path: %s", path)
+		return fmt.Errorf("no workspace repo configured")
+	}
+
+	m.updateRootGitignore()
+	if err := repo.AddAll(); err != nil {
+		log.Printf("sync: add-all before sync failed: %v", err)
+	}
+	if err := repo.Commit("sync workspace"); err != nil {
+		log.Printf("sync: commit before sync failed: %v", err)
 	}
 
 	if err := repo.Pull(); err != nil {
-		m.lastError[path] = err.Error()
+		m.lastError["."] = err.Error()
 		return fmt.Errorf("pull: %w", err)
 	}
 
 	// Reindex after pull to pick up any changes from remote.
 	if err := m.store.RebuildIndex(); err != nil {
-		log.Printf("sync: reindex after pull for %s failed: %v", path, err)
+		log.Printf("sync: reindex after pull failed: %v", err)
 	} else if err := m.indexer.Reindex(context.Background(), m.store); err != nil {
-		log.Printf("sync: reindex after pull for %s failed: %v", path, err)
+		log.Printf("sync: reindex after pull failed: %v", err)
 	}
 
 	if err := repo.Push(); err != nil {
-		m.lastError[path] = err.Error()
+		m.lastError["."] = err.Error()
 		return fmt.Errorf("push: %w", err)
 	}
 
-	m.lastError[path] = ""
-	m.lastPush[path] = time.Now()
-	m.lastSync[path] = time.Now()
+	m.lastError["."] = ""
+	m.lastPush["."] = time.Now()
+	m.lastSync["."] = time.Now()
 	return nil
 }
 
 // NotifyChange is called by API handlers after a file is saved or deleted.
-// It auto-commits the change if the file is inside a synced directory with
-// auto-commit enabled.
+// It auto-commits the change if auto-commit is enabled and the file's
+// top-level directory is not excluded.
 func (m *SyncManager) NotifyChange(filePath, action string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Extract the top-level directory from the file path.
-	// e.g. "work/notes/foo.md" -> "work"
-	topDir := topLevelDir(filePath)
-	if topDir == "" {
-		return // file is in workspace root, not in a synced dir
-	}
-
-	repo, ok := m.repos[topDir]
+	repo, ok := m.repos["."]
 	if !ok {
 		return
 	}
 
-	// Find the config for this repo.
+	// Check if the file's top-level directory is excluded.
+	topDir := topLevelDir(filePath)
+	if topDir != "" && m.config.IsExcluded(topDir) {
+		return
+	}
+
+	// Find the config for the root repo.
 	var rc *RemoteConfig
 	for i := range m.config.Remotes {
-		if m.config.Remotes[i].Path == topDir {
+		if m.config.Remotes[i].Path == "." {
 			rc = &m.config.Remotes[i]
 			break
 		}
@@ -230,46 +227,45 @@ func (m *SyncManager) NotifyChange(filePath, action string) {
 		return
 	}
 
-	// Convert workspace-relative path to repo-relative path.
-	// e.g. "work/notes/foo.md" with topDir "work" -> "notes/foo.md"
-	repoRelPath := strings.TrimPrefix(filePath, topDir+"/")
 	filename := filepath.Base(filePath)
-	if err := repo.Add(repoRelPath); err != nil {
+	if err := repo.Add(filePath); err != nil {
 		log.Printf("sync: auto-add %s failed: %v", filePath, err)
-		m.lastError[topDir] = err.Error()
+		m.lastError["."] = err.Error()
 		return
 	}
 
 	msg := fmt.Sprintf("%s %s", action, filename)
 	if err := repo.Commit(msg); err != nil {
 		log.Printf("sync: auto-commit %s failed: %v", filePath, err)
-		m.lastError[topDir] = err.Error()
+		m.lastError["."] = err.Error()
 	}
 }
 
-// Status returns sync status for all configured directories.
+// Status returns sync status for the workspace repo.
 func (m *SyncManager) Status() map[string]DirSyncStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	result := make(map[string]DirSyncStatus, len(m.config.Remotes))
+	result := make(map[string]DirSyncStatus)
 	for _, rc := range m.config.Remotes {
-		result[rc.Path] = m.dirStatus(rc)
+		if rc.Path == "." {
+			result["."] = m.dirStatus(rc)
+		}
 	}
 	return result
 }
 
-// DirStatus returns sync status for a single directory.
+// DirStatus returns sync status for the workspace repo.
 func (m *SyncManager) DirStatus(path string) (DirSyncStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for _, rc := range m.config.Remotes {
-		if rc.Path == path {
+		if rc.Path == "." {
 			return m.dirStatus(rc), nil
 		}
 	}
-	return DirSyncStatus{}, fmt.Errorf("no synced repo at path: %s", path)
+	return DirSyncStatus{}, fmt.Errorf("no workspace repo configured")
 }
 
 // dirStatus builds a DirSyncStatus for one remote config. Must be called with mu held.
@@ -301,60 +297,56 @@ func (m *SyncManager) dirStatus(rc RemoteConfig) DirSyncStatus {
 	return ds
 }
 
-// AddRemote configures a new synced directory. If URL is provided, it clones
-// the repo; otherwise it initializes a new repo in the workspace directory.
+// AddRemote configures the workspace sync. Only path "." is accepted.
 func (m *SyncManager) AddRemote(rc RemoteConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	rc.Path = "."
+
 	// Check for duplicate.
 	for _, existing := range m.config.Remotes {
-		if existing.Path == rc.Path {
-			return fmt.Errorf("remote already configured for path: %s", rc.Path)
+		if existing.Path == "." {
+			return fmt.Errorf("workspace sync already configured")
 		}
 	}
 
-	dir := filepath.Join(m.workspaceDir, rc.Path)
-	var repo *git.GitRepo
-	var err error
-
+	// Init in workspace root (never clone, content already exists).
+	repo, err := git.Init(m.workspaceDir)
+	if err != nil {
+		return fmt.Errorf("initializing workspace repo: %w", err)
+	}
 	if rc.URL != "" {
-		repo, err = git.Clone(rc.URL, dir)
-		if err != nil {
-			return fmt.Errorf("cloning %s: %w", rc.URL, err)
-		}
-	} else {
-		repo, err = git.Init(dir)
-		if err != nil {
-			return fmt.Errorf("initializing repo at %s: %w", rc.Path, err)
+		if err := repo.SetRemote(rc.URL); err != nil {
+			return fmt.Errorf("setting remote: %w", err)
 		}
 	}
-
 	if rc.Branch == "" {
 		rc.Branch = "main"
 	}
+	if err := repo.SetBranch(rc.Branch); err != nil {
+		log.Printf("sync: failed to set branch to %s: %v", rc.Branch, err)
+	}
 
-	m.repos[rc.Path] = repo
+	m.repos["."] = repo
 	m.config.Remotes = append(m.config.Remotes, rc)
 
 	if err := SaveSyncConfig(m.dataDir, m.config); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
-	// Reindex to pick up any files from clone.
-	if rc.URL != "" {
-		if err := m.store.RebuildIndex(); err != nil {
-			log.Printf("sync: reindex after clone for %s failed: %v", rc.Path, err)
-		} else if err := m.indexer.Reindex(context.Background(), m.store); err != nil {
-			log.Printf("sync: reindex after clone for %s failed: %v", rc.Path, err)
-		}
+	// Build initial .gitignore and commit everything.
+	m.updateRootGitignore()
+	if err := repo.AddAll(); err != nil {
+		log.Printf("sync: initial add-all failed: %v", err)
 	}
-
+	if err := repo.Commit("Initial commit"); err != nil {
+		log.Printf("sync: initial commit failed: %v", err)
+	}
 	return nil
 }
 
-// RemoveRemote removes a directory from sync config and deletes the .git
-// directory, turning it back into a normal unsynced folder. Files are kept.
+// RemoveRemote removes the workspace sync. Only path "." is accepted.
 func (m *SyncManager) RemoveRemote(path string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -362,44 +354,47 @@ func (m *SyncManager) RemoveRemote(path string) error {
 	found := false
 	remotes := make([]RemoteConfig, 0, len(m.config.Remotes))
 	for _, rc := range m.config.Remotes {
-		if rc.Path == path {
+		if rc.Path == "." {
 			found = true
 			continue
 		}
 		remotes = append(remotes, rc)
 	}
 	if !found {
-		return fmt.Errorf("no remote configured for path: %s", path)
+		return fmt.Errorf("no workspace sync configured")
 	}
 
 	m.config.Remotes = remotes
-	delete(m.repos, path)
-	delete(m.lastPush, path)
-	delete(m.lastError, path)
-	delete(m.lastSync, path)
+	m.config.ExcludedDirs = nil
+	delete(m.repos, ".")
+	delete(m.lastPush, ".")
+	delete(m.lastError, ".")
+	delete(m.lastSync, ".")
 
-	// Remove .git directory to fully disconnect from git.
-	gitDir := filepath.Join(m.workspaceDir, path, ".git")
+	// Remove .git directory.
+	gitDir := filepath.Join(m.workspaceDir, ".git")
 	if err := os.RemoveAll(gitDir); err != nil {
-		log.Printf("sync: failed to remove .git for %s: %v", path, err)
+		log.Printf("sync: failed to remove .git: %v", err)
 	}
+
+	// Remove .gitignore managed block.
+	m.cleanupGitignore()
 
 	return SaveSyncConfig(m.dataDir, m.config)
 }
 
-// UpdateRemote updates the configuration for an existing synced directory.
+// UpdateRemote updates the configuration for the workspace sync.
 func (m *SyncManager) UpdateRemote(path string, rc RemoteConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for i, existing := range m.config.Remotes {
-		if existing.Path == path {
-			// Preserve the path — it can't be changed.
-			rc.Path = path
+		if existing.Path == "." {
+			rc.Path = "."
 
 			// If URL changed, update the git remote.
 			if rc.URL != "" && rc.URL != existing.URL {
-				repo, ok := m.repos[path]
+				repo, ok := m.repos["."]
 				if ok {
 					if err := repo.SetRemote(rc.URL); err != nil {
 						return fmt.Errorf("updating remote URL: %w", err)
@@ -411,18 +406,17 @@ func (m *SyncManager) UpdateRemote(path string, rc RemoteConfig) error {
 			return SaveSyncConfig(m.dataDir, m.config)
 		}
 	}
-	return fmt.Errorf("no remote configured for path: %s", path)
+	return fmt.Errorf("no workspace sync configured")
 }
 
 // ManualCommit stages all changes and commits with the given message.
-// Returns nil if there is nothing to commit.
 func (m *SyncManager) ManualCommit(path, message string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	repo, ok := m.repos[path]
+	repo, ok := m.repos["."]
 	if !ok {
-		return fmt.Errorf("no synced repo at path: %s", path)
+		return fmt.Errorf("no workspace repo configured")
 	}
 
 	if err := repo.AddAll(); err != nil {
@@ -431,18 +425,18 @@ func (m *SyncManager) ManualCommit(path, message string) error {
 	if err := repo.Commit(message); err != nil {
 		return fmt.Errorf("committing: %w", err)
 	}
-	m.lastError[path] = ""
+	m.lastError["."] = ""
 	return nil
 }
 
-// Log returns the last n git commits for a synced directory.
+// Log returns the last n git commits for the workspace repo.
 func (m *SyncManager) Log(path string, n int) ([]git.Commit, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	repo, ok := m.repos[path]
+	repo, ok := m.repos["."]
 	if !ok {
-		return nil, fmt.Errorf("no synced repo at path: %s", path)
+		return nil, fmt.Errorf("no workspace repo configured")
 	}
 	return repo.Log(n)
 }
@@ -456,6 +450,84 @@ func (m *SyncManager) Remotes() []RemoteConfig {
 	return out
 }
 
+// ExcludeDir excludes a directory from git tracking.
+func (m *SyncManager) ExcludeDir(dir string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Validate: simple name, no slashes.
+	if dir == "" || strings.Contains(dir, "/") || dir == "." || dir == ".." {
+		return fmt.Errorf("invalid directory name: %s", dir)
+	}
+
+	repo, ok := m.repos["."]
+	if !ok {
+		return fmt.Errorf("no workspace repo configured")
+	}
+
+	m.config.AddExcludedDir(dir)
+	if err := SaveSyncConfig(m.dataDir, m.config); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	m.updateRootGitignore()
+
+	// Remove from git index (graceful if not tracked).
+	if err := repo.RemoveCached(dir); err != nil {
+		log.Printf("sync: RemoveCached %s failed: %v", dir, err)
+	}
+
+	if err := repo.Add(".gitignore"); err != nil {
+		return fmt.Errorf("staging .gitignore: %w", err)
+	}
+	if err := repo.Commit("exclude " + dir); err != nil {
+		log.Printf("sync: commit exclude %s: %v", dir, err)
+	}
+	return nil
+}
+
+// IncludeDir re-includes a previously excluded directory in git tracking.
+func (m *SyncManager) IncludeDir(dir string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if dir == "" || strings.Contains(dir, "/") || dir == "." || dir == ".." {
+		return fmt.Errorf("invalid directory name: %s", dir)
+	}
+
+	repo, ok := m.repos["."]
+	if !ok {
+		return fmt.Errorf("no workspace repo configured")
+	}
+
+	m.config.RemoveExcludedDir(dir)
+	if err := SaveSyncConfig(m.dataDir, m.config); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	m.updateRootGitignore()
+
+	if err := repo.Add(dir); err != nil {
+		log.Printf("sync: add %s failed: %v", dir, err)
+	}
+	if err := repo.Add(".gitignore"); err != nil {
+		return fmt.Errorf("staging .gitignore: %w", err)
+	}
+	if err := repo.Commit("include " + dir); err != nil {
+		log.Printf("sync: commit include %s: %v", dir, err)
+	}
+	return nil
+}
+
+// ExcludedDirs returns a copy of the excluded directories list.
+func (m *SyncManager) ExcludedDirs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.config.ExcludedDirs))
+	copy(out, m.config.ExcludedDirs)
+	return out
+}
+
 // topLevelDir extracts the first path component from a relative file path.
 // Returns empty string if the file is in the root directory.
 func topLevelDir(filePath string) string {
@@ -465,4 +537,90 @@ func topLevelDir(filePath string) string {
 		return "" // file is in root, no directory
 	}
 	return parts[0]
+}
+
+// updateRootGitignore refreshes the managed block in the workspace-root
+// .gitignore based on the ExcludedDirs config.
+func (m *SyncManager) updateRootGitignore() {
+	if _, ok := m.repos["."]; !ok {
+		return
+	}
+
+	// Build sorted list of gitignore entries from excluded dirs.
+	var lines []string
+	for _, dir := range m.config.ExcludedDirs {
+		lines = append(lines, dir+"/")
+	}
+	sort.Strings(lines)
+
+	managedBlock := "# BEGIN ARCHIVARY MANAGED\n"
+	for _, line := range lines {
+		managedBlock += line + "\n"
+	}
+	managedBlock += "# END ARCHIVARY MANAGED"
+
+	// Read existing .gitignore.
+	ignorePath := filepath.Join(m.workspaceDir, ".gitignore")
+	existing, _ := os.ReadFile(ignorePath)
+	content := string(existing)
+
+	const beginMarker = "# BEGIN ARCHIVARY MANAGED"
+	const endMarker = "# END ARCHIVARY MANAGED"
+
+	beginIdx := strings.Index(content, beginMarker)
+	endIdx := strings.Index(content, endMarker)
+
+	if beginIdx >= 0 && endIdx >= 0 {
+		content = content[:beginIdx] + managedBlock + content[endIdx+len(endMarker):]
+	} else {
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		if content != "" {
+			content += "\n"
+		}
+		content += managedBlock + "\n"
+	}
+
+	if err := os.WriteFile(ignorePath, []byte(content), 0o644); err != nil {
+		log.Printf("sync: failed to write .gitignore: %v", err)
+	}
+}
+
+// cleanupGitignore removes the managed block from .gitignore when unsyncing.
+func (m *SyncManager) cleanupGitignore() {
+	ignorePath := filepath.Join(m.workspaceDir, ".gitignore")
+	existing, err := os.ReadFile(ignorePath)
+	if err != nil {
+		return
+	}
+	content := string(existing)
+
+	const beginMarker = "# BEGIN ARCHIVARY MANAGED"
+	const endMarker = "# END ARCHIVARY MANAGED"
+
+	beginIdx := strings.Index(content, beginMarker)
+	endIdx := strings.Index(content, endMarker)
+
+	if beginIdx >= 0 && endIdx >= 0 {
+		// Remove the managed block and any surrounding blank lines.
+		before := strings.TrimRight(content[:beginIdx], "\n")
+		after := strings.TrimLeft(content[endIdx+len(endMarker):], "\n")
+		content = before
+		if after != "" {
+			if content != "" {
+				content += "\n\n"
+			}
+			content += after
+		}
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		if content == "\n" {
+			// File is now empty, remove it.
+			os.Remove(ignorePath)
+			return
+		}
+		os.WriteFile(ignorePath, []byte(content), 0o644)
+	}
 }

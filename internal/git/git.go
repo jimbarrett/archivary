@@ -52,6 +52,12 @@ func Init(dir string) (*GitRepo, error) {
 	return &GitRepo{dir: dir}, nil
 }
 
+// SetBranch renames the current branch to the given name.
+func (r *GitRepo) SetBranch(name string) error {
+	_, err := r.run("branch", "-M", name)
+	return err
+}
+
 // Clone clones a remote repository into the given directory.
 func Clone(url, dir string) (*GitRepo, error) {
 	cmd := exec.Command("git", "clone", url, dir)
@@ -95,6 +101,7 @@ func (r *GitRepo) Commit(message string) error {
 }
 
 // Push pushes to the remote. Returns nil if there is no remote configured.
+// If no upstream is set, it pushes with -u to establish tracking.
 func (r *GitRepo) Push() error {
 	has, err := r.HasRemote()
 	if err != nil {
@@ -103,6 +110,19 @@ func (r *GitRepo) Push() error {
 	if !has {
 		return nil
 	}
+
+	// Check if the current branch has an upstream configured.
+	_, upErr := r.run("rev-parse", "--abbrev-ref", "@{u}")
+	if upErr != nil {
+		// No upstream — push with -u to set tracking.
+		branch, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
+		if err != nil {
+			return err
+		}
+		_, err = r.run("push", "-u", "origin", strings.TrimSpace(branch))
+		return err
+	}
+
 	_, err = r.run("push")
 	return err
 }
@@ -238,6 +258,16 @@ func (r *GitRepo) Log(n int) ([]Commit, error) {
 		})
 	}
 	return commits, nil
+}
+
+// RemoveCached removes files from the git index without deleting them from disk.
+func (r *GitRepo) RemoveCached(paths ...string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	args := append([]string{"rm", "--cached", "-r", "--ignore-unmatch", "--"}, paths...)
+	_, err := r.run(args...)
+	return err
 }
 
 // run executes a git command in the repo directory and returns stdout.

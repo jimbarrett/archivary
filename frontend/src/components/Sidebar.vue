@@ -69,7 +69,6 @@
           v-for="node in sortedRootChildren"
           :key="node.path"
           :node="node"
-          :sync-status="syncStatus"
         />
       </div>
       <div v-else class="empty-state">
@@ -84,7 +83,6 @@
             <path d="M2.3 10a6 6 0 0 0 10.3 1.5" /><path d="M13.7 6A6 6 0 0 0 3.4 4.5" />
           </svg>
           <span>Git Sync</span>
-          <span v-if="remoteCount" class="badge">{{ remoteCount }}</span>
         </router-link>
       </div>
     </div>
@@ -102,7 +100,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getTree, searchPages, reindex, movePage } from '../lib/api.js'
 import { treeVersion } from '../lib/events.js'
-import { syncStatus, syncRemotes, syncing, startSyncPolling, stopSyncPolling, triggerSyncAll } from '../lib/sync.js'
+import { syncing, startSyncPolling, stopSyncPolling, triggerSyncAll, hasSyncRemotes } from '../lib/sync.js'
 import TreeNode from './TreeNode.vue'
 import NewPageDialog from './NewPageDialog.vue'
 
@@ -124,9 +122,6 @@ const sortedRootChildren = computed(() => {
     return a.name.localeCompare(b.name)
   })
 })
-
-const hasSyncRemotes = computed(() => syncRemotes.value.length > 0)
-const remoteCount = computed(() => syncRemotes.value.length)
 
 onMounted(async () => {
   await refreshTree()
@@ -229,20 +224,20 @@ async function onRootDrop(event) {
   event.preventDefault()
   rootDragCounter = 0
   isDragOverRoot.value = false
-  
+
   try {
     const dragData = JSON.parse(event.dataTransfer.getData('application/json'))
     const { pageId, currentPath, fileName } = dragData
-    
+
     // If the file is already in root, don't do anything
     if (!currentPath.includes('/')) return
-    
+
     // Move to root (no directory prefix)
     await movePage(pageId, fileName)
-    
+
     // Refresh the tree
     await refreshTree()
-    
+
   } catch (error) {
     console.error('Failed to move page:', error)
     alert(`Failed to move file: ${error.message}`)
@@ -320,6 +315,7 @@ defineExpose({ refreshTree })
 }
 
 .icon-btn {
+  position: relative;
   background: none;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -436,18 +432,6 @@ defineExpose({ refreshTree })
   background: var(--bg-hover);
   color: var(--text-primary);
   text-decoration: none;
-}
-
-.badge {
-  margin-left: auto;
-  background: var(--accent-dim);
-  color: var(--accent);
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 0.1rem 0.35rem;
-  border-radius: 8px;
-  min-width: 1.1rem;
-  text-align: center;
 }
 
 @keyframes spin {

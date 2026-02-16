@@ -2,12 +2,16 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 )
 
 const AppName = "archivary"
+
+// DefaultPort is the starting port for auto-selection.
+const DefaultPort = 10200
 
 type Config struct {
 	// WorkspaceDir is the directory where user markdown files are stored.
@@ -36,7 +40,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		WorkspaceDir: workspace,
 		DataDir:      dataDir,
-		Port:         "8080",
+		Port:         fmt.Sprintf("%d", DefaultPort),
 	}
 
 	// Ensure directories exist
@@ -88,4 +92,18 @@ func defaultDataDir() (string, error) {
 		}
 		return filepath.Join(dataHome, AppName), nil
 	}
+}
+
+// FindAvailablePort tries ports starting at startPort and returns the first
+// one that is available. It checks up to 100 ports before giving up.
+func FindAvailablePort(startPort int) (int, error) {
+	for port := startPort; port < startPort+100; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		return port, nil
+	}
+	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+99)
 }

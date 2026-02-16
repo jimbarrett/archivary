@@ -1,23 +1,11 @@
 <template>
   <div class="dialog-overlay" @click.self="$emit('close')">
     <div class="dialog">
-      <h3>{{ isEditing ? 'Edit Sync Settings' : 'Add Synced Directory' }}</h3>
-
-      <template v-if="!isEditing">
-        <label class="field-label">Directory Name</label>
-        <input
-          ref="pathInput"
-          v-model="form.path"
-          type="text"
-          placeholder="my-notes"
-          class="field-input"
-          @keydown.escape="$emit('close')"
-        />
-        <p class="field-hint">A new directory will be created in your workspace.</p>
-      </template>
+      <h3>{{ isEditing ? 'Sync Settings' : 'Setup Workspace Sync' }}</h3>
 
       <label class="field-label">Remote URL</label>
       <input
+        ref="urlInput"
         v-model="form.url"
         type="text"
         placeholder="git@github.com:user/repo.git"
@@ -60,10 +48,17 @@
       <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="dialog-actions">
-        <button class="btn btn-secondary" @click="$emit('close')">Cancel</button>
-        <button class="btn btn-primary" @click="submit" :disabled="!isValid || submitting">
-          {{ submitting ? 'Saving...' : (isEditing ? 'Save' : 'Add') }}
-        </button>
+        <button
+          v-if="isEditing"
+          class="btn btn-danger unsync-btn"
+          @click="onUnsync"
+        >Unsync Workspace</button>
+        <div class="dialog-actions-right">
+          <button class="btn btn-secondary" @click="$emit('close')">Cancel</button>
+          <button class="btn btn-primary" @click="submit" :disabled="submitting">
+            {{ submitting ? 'Saving...' : (isEditing ? 'Save' : 'Setup') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -71,14 +66,11 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { addRemote, updateRemote } from '../lib/api.js'
+import { addRemote, updateRemote, removeRemote } from '../lib/api.js'
 import { refreshSyncStatus } from '../lib/sync.js'
 
 const props = defineProps({
-  // If editing, pass the existing remote config
   remote: { type: Object, default: null },
-  // For "add new" from a directory view — pre-fills the path
-  defaultPath: { type: String, default: '' },
 })
 
 const emit = defineEmits(['close', 'saved'])
@@ -86,39 +78,32 @@ const emit = defineEmits(['close', 'saved'])
 const isEditing = computed(() => !!props.remote)
 
 const form = ref({
-  path: props.remote?.path || props.defaultPath || '',
   url: props.remote?.url || '',
   branch: props.remote?.branch || 'main',
   autoCommit: props.remote?.auto_commit ?? true,
-  autoPush: props.remote?.auto_push ?? true,
+  autoPush: props.remote?.auto_push ?? false,
   pushInterval: props.remote?.push_interval_minutes ?? 5,
 })
 
 const error = ref('')
 const submitting = ref(false)
-const pathInput = ref(null)
-
-const isValid = computed(() => {
-  if (!isEditing.value && !form.value.path.trim()) return false
-  return true
-})
+const urlInput = ref(null)
 
 onMounted(() => {
   if (!isEditing.value) {
     nextTick(() => {
-      if (pathInput.value) pathInput.value.focus()
+      if (urlInput.value) urlInput.value.focus()
     })
   }
 })
 
 async function submit() {
-  if (!isValid.value) return
   error.value = ''
   submitting.value = true
 
   try {
     if (isEditing.value) {
-      await updateRemote(props.remote.path, {
+      await updateRemote('.', {
         url: form.value.url,
         branch: form.value.branch,
         auto_commit: form.value.autoCommit,
@@ -127,7 +112,7 @@ async function submit() {
       })
     } else {
       await addRemote({
-        path: form.value.path.trim(),
+        path: '.',
         url: form.value.url.trim(),
         branch: form.value.branch.trim() || 'main',
         auto_commit: form.value.autoCommit,
@@ -142,6 +127,18 @@ async function submit() {
     error.value = e.message
   } finally {
     submitting.value = false
+  }
+}
+
+async function onUnsync() {
+  if (!confirm('Unsync the workspace? The .git directory will be removed but your files will remain.')) return
+  try {
+    await removeRemote('.')
+    await refreshSyncStatus()
+    emit('saved')
+    emit('close')
+  } catch (e) {
+    error.value = e.message
   }
 }
 </script>
@@ -247,9 +244,20 @@ async function submit() {
 
 .dialog-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 0.5rem;
   margin-top: 0.75rem;
+}
+
+.dialog-actions-right {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.unsync-btn {
+  margin-right: auto;
 }
 
 .btn {
@@ -284,5 +292,15 @@ async function submit() {
 .btn-secondary {
   background: var(--bg-input);
   color: var(--text-primary);
+}
+
+.btn-danger {
+  background: none;
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.btn-danger:hover {
+  background: rgba(247, 118, 142, 0.1);
 }
 </style>

@@ -18,6 +18,16 @@ type handlers struct {
 	sync    *sync.SyncManager
 }
 
+// syncPath decodes the :path param for sync routes, mapping the
+// URL-safe placeholder "_root" back to "." for the root workspace repo.
+func syncPath(c echo.Context) string {
+	p := c.Param("path")
+	if p == "_root" {
+		return "."
+	}
+	return p
+}
+
 // apiError is a consistent JSON error response.
 type apiError struct {
 	Error string `json:"error"`
@@ -396,7 +406,7 @@ func (h *handlers) syncDirStatus(c echo.Context) error {
 	if h.sync == nil {
 		return errJSON(c, http.StatusNotFound, "sync not configured")
 	}
-	path := c.Param("path")
+	path := syncPath(c)
 	status, err := h.sync.DirStatus(path)
 	if err != nil {
 		return errJSON(c, http.StatusNotFound, err.Error())
@@ -420,7 +430,7 @@ func (h *handlers) syncNowDir(c echo.Context) error {
 	if h.sync == nil {
 		return errJSON(c, http.StatusBadRequest, "sync not configured")
 	}
-	path := c.Param("path")
+	path := syncPath(c)
 	if err := h.sync.SyncDir(path); err != nil {
 		return errJSON(c, http.StatusInternalServerError, err.Error())
 	}
@@ -448,12 +458,8 @@ func (h *handlers) addRemote(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return errJSON(c, http.StatusBadRequest, "invalid request body")
 	}
-	if req.Path == "" {
-		return errJSON(c, http.StatusBadRequest, "path is required")
-	}
-
 	rc := sync.RemoteConfig{
-		Path:                req.Path,
+		Path:                ".",
 		URL:                 req.URL,
 		Branch:              req.Branch,
 		AutoCommit:          req.AutoCommit,
@@ -471,7 +477,7 @@ func (h *handlers) updateRemote(c echo.Context) error {
 	if h.sync == nil {
 		return errJSON(c, http.StatusBadRequest, "sync not configured")
 	}
-	path := c.Param("path")
+	path := syncPath(c)
 
 	var req updateRemoteRequest
 	if err := c.Bind(&req); err != nil {
@@ -527,7 +533,7 @@ func (h *handlers) removeRemote(c echo.Context) error {
 	if h.sync == nil {
 		return errJSON(c, http.StatusBadRequest, "sync not configured")
 	}
-	path := c.Param("path")
+	path := syncPath(c)
 	if err := h.sync.RemoveRemote(path); err != nil {
 		return errJSON(c, http.StatusNotFound, err.Error())
 	}
@@ -539,7 +545,7 @@ func (h *handlers) syncCommit(c echo.Context) error {
 	if h.sync == nil {
 		return errJSON(c, http.StatusBadRequest, "sync not configured")
 	}
-	path := c.Param("path")
+	path := syncPath(c)
 	var body struct {
 		Message string `json:"message"`
 	}
@@ -560,7 +566,7 @@ func (h *handlers) syncLog(c echo.Context) error {
 	if h.sync == nil {
 		return errJSON(c, http.StatusBadRequest, "sync not configured")
 	}
-	path := c.Param("path")
+	path := syncPath(c)
 	n := 20
 	if nStr := c.QueryParam("n"); nStr != "" {
 		if parsed, err := strconv.Atoi(nStr); err == nil && parsed > 0 {
@@ -575,4 +581,40 @@ func (h *handlers) syncLog(c echo.Context) error {
 		commits = []git.Commit{}
 	}
 	return c.JSON(http.StatusOK, commits)
+}
+
+// GET /api/sync/excluded
+func (h *handlers) listExcluded(c echo.Context) error {
+	if h.sync == nil {
+		return c.JSON(http.StatusOK, []string{})
+	}
+	dirs := h.sync.ExcludedDirs()
+	if dirs == nil {
+		dirs = []string{}
+	}
+	return c.JSON(http.StatusOK, dirs)
+}
+
+// POST /api/sync/exclude/:path
+func (h *handlers) excludeDir(c echo.Context) error {
+	if h.sync == nil {
+		return errJSON(c, http.StatusBadRequest, "sync not configured")
+	}
+	dir := c.Param("path")
+	if err := h.sync.ExcludeDir(dir); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "excluded"})
+}
+
+// POST /api/sync/include/:path
+func (h *handlers) includeDir(c echo.Context) error {
+	if h.sync == nil {
+		return errJSON(c, http.StatusBadRequest, "sync not configured")
+	}
+	dir := c.Param("path")
+	if err := h.sync.IncludeDir(dir); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "included"})
 }

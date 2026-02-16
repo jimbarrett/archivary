@@ -90,12 +90,18 @@ export function reindex() {
 
 // --- Sync API ---
 
+// Encode sync path for URL — "." must be sent as "_root" to avoid
+// router path normalization issues.
+function syncPath(path) {
+  return path === '.' ? '_root' : encodeURIComponent(path)
+}
+
 export function getSyncStatus() {
   return request('/sync/status')
 }
 
 export function getSyncDirStatus(path) {
-  return request(`/sync/status/${encodeURIComponent(path)}`)
+  return request(`/sync/status/${syncPath(path)}`)
 }
 
 export function syncNow() {
@@ -103,7 +109,7 @@ export function syncNow() {
 }
 
 export function syncNowDir(path) {
-  return request(`/sync/now/${encodeURIComponent(path)}`, { method: 'POST' })
+  return request(`/sync/now/${syncPath(path)}`, { method: 'POST' })
 }
 
 export function listRemotes() {
@@ -118,26 +124,38 @@ export function addRemote(data) {
 }
 
 export function updateRemote(path, data) {
-  return request(`/sync/remotes/${encodeURIComponent(path)}`, {
+  return request(`/sync/remotes/${syncPath(path)}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   })
 }
 
 export function removeRemote(path) {
-  return request(`/sync/remotes/${encodeURIComponent(path)}`, {
+  return request(`/sync/remotes/${syncPath(path)}`, {
     method: 'DELETE',
   })
 }
 
 export function getSyncLog(path, n = 20) {
-  return request(`/sync/log/${encodeURIComponent(path)}?n=${n}`)
+  return request(`/sync/log/${syncPath(path)}?n=${n}`)
 }
 
 export function syncCommit(path, message) {
-  return request(`/sync/commit/${encodeURIComponent(path)}`, {
+  return request(`/sync/commit/${syncPath(path)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message }),
   })
+}
+
+export function listExcludedDirs() {
+  return request('/sync/excluded')
+}
+
+export function excludeDir(dirName) {
+  return request(`/sync/exclude/${encodeURIComponent(dirName)}`, { method: 'POST' })
+}
+
+export function includeDir(dirName) {
+  return request(`/sync/include/${encodeURIComponent(dirName)}`, { method: 'POST' })
 }

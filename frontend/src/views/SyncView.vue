@@ -2,41 +2,31 @@
   <div class="sync-view">
     <div class="sync-header">
       <h1>Git Sync</h1>
-      <div class="header-actions">
-        <button
-          v-if="remotes.length"
-          class="btn btn-secondary"
-          @click="onSyncAll"
-          :disabled="syncing"
-        >
-          {{ syncing ? 'Syncing...' : 'Sync All' }}
-        </button>
-        <button class="btn btn-primary" @click="showAddDialog = true">
-          Add Remote
-        </button>
+    </div>
+
+    <!-- Not synced: empty state -->
+    <template v-if="!isRootSynced">
+      <p class="description">
+        Sync your workspace to a git remote. All directories and pages will be tracked unless you explicitly exclude them.
+      </p>
+      <div class="empty-state">
+        <p>Workspace sync is not configured.</p>
+        <button class="btn btn-primary" @click="showSetup = true">Setup Workspace Sync</button>
       </div>
-    </div>
+    </template>
 
-    <p class="description">
-      Sync workspace directories to git remotes. Each synced directory is an independent git repository.
-    </p>
-
-    <div v-if="!remotes.length" class="empty-state">
-      <p>No synced directories configured.</p>
-      <p class="hint">Click "Add Remote" to sync a directory to a git repository, or clone an existing one.</p>
-    </div>
-
-    <div v-else class="remote-list">
-      <div v-for="remote in remotes" :key="remote.path" class="remote-card">
+    <!-- Synced: workspace card -->
+    <template v-else>
+      <div class="remote-card">
         <div class="remote-header">
           <div class="remote-info">
-            <h2 class="remote-path">{{ remote.path }}</h2>
-            <span class="remote-url" v-if="remote.url">{{ remote.url }}</span>
+            <h2 class="remote-path">Workspace</h2>
+            <span class="remote-url" v-if="rootRemote?.url">{{ rootRemote.url }}</span>
             <span class="remote-url local" v-else>Local only (no remote)</span>
           </div>
           <div class="remote-status">
-            <span class="status-badge" :class="statusClass(remote.path)">
-              {{ statusLabel(remote.path) }}
+            <span class="status-badge" :class="statusClass">
+              {{ statusLabel }}
             </span>
           </div>
         </div>
@@ -44,171 +34,165 @@
         <div class="remote-details">
           <div class="detail-row">
             <span class="detail-label">Branch</span>
-            <span class="detail-value">{{ remote.branch || 'main' }}</span>
+            <span class="detail-value">{{ rootRemote?.branch || 'main' }}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">Auto-commit</span>
-            <span class="detail-value">{{ remote.auto_commit ? 'On' : 'Off' }}</span>
+            <span class="detail-value">{{ rootRemote?.auto_commit ? 'On' : 'Off' }}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">Auto-push</span>
             <span class="detail-value">
-              {{ remote.auto_push ? `Every ${remote.push_interval_minutes} min` : 'Off' }}
+              {{ rootRemote?.auto_push ? `Every ${rootRemote.push_interval_minutes} min` : 'Off' }}
             </span>
           </div>
         </div>
 
-        <div v-if="statusError(remote.path)" class="error-banner">
-          {{ statusError(remote.path) }}
+        <div v-if="statusError" class="error-banner">
+          {{ statusError }}
         </div>
 
         <div class="remote-actions">
-          <button class="btn btn-small" @click="onSyncOne(remote.path)" :disabled="syncing">
-            Sync Now
+          <button class="btn btn-small" @click="onSyncNow" :disabled="syncing">
+            {{ syncing ? 'Syncing...' : 'Sync Now' }}
           </button>
-          <button class="btn btn-small" @click="onShowLog(remote.path)">
-            View Log
-          </button>
-          <button class="btn btn-small" @click="editRemote = remote">
+          <button class="btn btn-small" @click="showSettings = true">
             Settings
           </button>
-          <button class="btn btn-small btn-danger-text" @click="onRemove(remote)">
+          <button class="btn btn-small btn-danger-text" @click="onUnsync">
             Unsync
           </button>
         </div>
+      </div>
 
-        <div v-if="logPath === remote.path && logEntries.length" class="log-section">
-          <h3 class="log-title">Recent Commits</h3>
-          <div v-for="entry in logEntries" :key="entry.hash" class="log-entry">
-            <span class="log-hash">{{ entry.hash.substring(0, 7) }}</span>
-            <span class="log-message">{{ entry.message }}</span>
-            <span class="log-meta">{{ entry.author }} &middot; {{ formatTime(entry.time) }}</span>
-          </div>
-        </div>
-        <div v-if="logPath === remote.path && !logEntries.length && !logLoading" class="log-section">
-          <p class="log-empty">No commits yet.</p>
+      <!-- Recent commits -->
+      <div v-if="logEntries.length" class="section">
+        <h2 class="section-title">Recent Commits</h2>
+        <div v-for="entry in logEntries" :key="entry.hash" class="log-entry">
+          <span class="log-hash">{{ entry.hash.substring(0, 7) }}</span>
+          <span class="log-message">{{ entry.message }}</span>
+          <span class="log-meta">{{ entry.author }} &middot; {{ formatTime(entry.time) }}</span>
         </div>
       </div>
-    </div>
+
+      <!-- Excluded directories -->
+      <div v-if="excludedDirs.length" class="section">
+        <h2 class="section-title">Excluded Directories</h2>
+        <div class="excluded-list">
+          <div v-for="dir in excludedDirs" :key="dir" class="excluded-item">
+            <span class="excluded-name">{{ dir }}/</span>
+            <button class="btn btn-small" @click="onInclude(dir)">Include</button>
+          </div>
+        </div>
+      </div>
+    </template>
 
     <SyncSettingsDialog
-      v-if="showAddDialog"
-      @close="showAddDialog = false"
-      @saved="onRemoteSaved"
+      v-if="showSetup"
+      @close="showSetup = false"
+      @saved="onSaved"
     />
 
     <SyncSettingsDialog
-      v-if="editRemote"
-      :remote="editRemote"
-      @close="editRemote = null"
-      @saved="onRemoteSaved"
+      v-if="showSettings && rootRemote"
+      :remote="rootRemote"
+      @close="showSettings = false"
+      @saved="onSaved"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { getSyncLog, removeRemote } from '../lib/api.js'
-import { syncStatus, syncRemotes, syncing, refreshSyncStatus, triggerSyncAll, triggerSyncDir } from '../lib/sync.js'
+import { ref, computed, onMounted, watch } from 'vue'
+import { getSyncLog, removeRemote, includeDir } from '../lib/api.js'
+import { syncStatus, syncing, refreshSyncStatus, triggerSyncAll, isRootSynced, rootRemote, excludedDirs } from '../lib/sync.js'
 import { refreshSidebarTree } from '../lib/events.js'
 import SyncSettingsDialog from '../components/SyncSettingsDialog.vue'
 
-const remotes = syncRemotes
-const showAddDialog = ref(false)
-const editRemote = ref(null)
-const logPath = ref(null)
+const showSetup = ref(false)
+const showSettings = ref(false)
 const logEntries = ref([])
-const logLoading = ref(false)
 
-onMounted(() => {
-  refreshSyncStatus()
-})
-
-function statusClass(path) {
-  const s = syncStatus.value[path]
+const statusClass = computed(() => {
+  const s = syncStatus.value['.']
   if (!s) return 'status-unknown'
   if (s.error) return 'status-error'
   if (!s.clean) return 'status-pending'
   if (s.ahead > 0) return 'status-ahead'
   return 'status-clean'
-}
+})
 
-function statusLabel(path) {
-  const s = syncStatus.value[path]
+const statusLabel = computed(() => {
+  const s = syncStatus.value['.']
   if (!s) return 'Unknown'
   if (s.error) return 'Error'
   if (!s.clean) return 'Changes'
   if (s.ahead > 0) return `${s.ahead} to push`
   if (s.behind > 0) return `${s.behind} to pull`
   return 'Clean'
-}
+})
 
-function statusError(path) {
-  const s = syncStatus.value[path]
+const statusError = computed(() => {
+  const s = syncStatus.value['.']
   return s?.error || ''
+})
+
+onMounted(async () => {
+  await refreshSyncStatus()
+  if (isRootSynced.value) {
+    await loadLog()
+  }
+})
+
+watch(isRootSynced, async (val) => {
+  if (val) await loadLog()
+  else logEntries.value = []
+})
+
+async function loadLog() {
+  try {
+    logEntries.value = await getSyncLog('.', 15)
+  } catch (e) {
+    logEntries.value = []
+  }
 }
 
-async function onSyncAll() {
+async function onSyncNow() {
   try {
     await triggerSyncAll()
     refreshSidebarTree()
+    await loadLog()
   } catch (e) {
     alert('Sync failed: ' + e.message)
   }
 }
 
-async function onSyncOne(path) {
+async function onUnsync() {
+  if (!confirm('Unsync the workspace? The .git directory will be removed but your files will remain.')) return
   try {
-    await triggerSyncDir(path)
-    refreshSidebarTree()
-    // Refresh log if it's open
-    if (logPath.value === path) {
-      await loadLog(path)
-    }
-  } catch (e) {
-    alert('Sync failed: ' + e.message)
-  }
-}
-
-async function onShowLog(path) {
-  if (logPath.value === path) {
-    logPath.value = null
-    logEntries.value = []
-    return
-  }
-  await loadLog(path)
-}
-
-async function loadLog(path) {
-  logPath.value = path
-  logLoading.value = true
-  try {
-    logEntries.value = await getSyncLog(path, 15)
-  } catch (e) {
-    logEntries.value = []
-  } finally {
-    logLoading.value = false
-  }
-}
-
-async function onRemove(remote) {
-  if (!confirm(`Unsync "${remote.path}"? The .git directory will be removed but your files will remain.`)) return
-  try {
-    await removeRemote(remote.path)
+    await removeRemote('.')
     await refreshSyncStatus()
     refreshSidebarTree()
-    if (logPath.value === remote.path) {
-      logPath.value = null
-      logEntries.value = []
-    }
+    logEntries.value = []
   } catch (e) {
-    alert('Remove failed: ' + e.message)
+    alert('Unsync failed: ' + e.message)
   }
 }
 
-async function onRemoteSaved() {
+async function onInclude(dir) {
+  try {
+    await includeDir(dir)
+    await refreshSyncStatus()
+    await loadLog()
+  } catch (e) {
+    alert('Include failed: ' + e.message)
+  }
+}
+
+async function onSaved() {
   await refreshSyncStatus()
   refreshSidebarTree()
+  await loadLog()
 }
 
 function formatTime(iso) {
@@ -229,20 +213,12 @@ function formatTime(iso) {
 }
 
 .sync-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 0.5rem;
 }
 
 .sync-header h1 {
   font-size: 1.5rem;
   font-weight: 600;
-}
-
-.header-actions {
-  display: flex;
-  gap: 0.5rem;
 }
 
 .description {
@@ -257,16 +233,8 @@ function formatTime(iso) {
   color: var(--text-secondary);
 }
 
-.empty-state .hint {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin-top: 0.5rem;
-}
-
-.remote-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.empty-state p {
+  margin-bottom: 1rem;
 }
 
 .remote-card {
@@ -274,6 +242,7 @@ function formatTime(iso) {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 .remote-header {
@@ -372,6 +341,69 @@ function formatTime(iso) {
   gap: 0.4rem;
 }
 
+.section {
+  margin-bottom: 1.5rem;
+}
+
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.log-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  font-size: 0.8rem;
+}
+
+.log-hash {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.log-message {
+  color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-meta {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.excluded-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.excluded-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.excluded-name {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
 .btn {
   padding: 0.3rem 0.75rem;
   border: 1px solid var(--border);
@@ -421,54 +453,5 @@ function formatTime(iso) {
 
 .btn-danger-text:hover {
   background: rgba(247, 118, 142, 0.1);
-}
-
-.log-section {
-  margin-top: 0.75rem;
-  border-top: 1px solid var(--border);
-  padding-top: 0.75rem;
-}
-
-.log-title {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-}
-
-.log-entry {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.2rem 0;
-  font-size: 0.8rem;
-}
-
-.log-hash {
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-.log-message {
-  color: var(--text-primary);
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.log-meta {
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  flex-shrink: 0;
-}
-
-.log-empty {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  font-style: italic;
 }
 </style>

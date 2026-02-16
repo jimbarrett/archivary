@@ -11,15 +11,6 @@
     >
       <span class="tree-arrow" :class="{ expanded }" @click.stop="toggleExpand">&#9654;</span>
       <span class="tree-label" @click="navigateToDir">{{ node.name }}</span>
-      <span v-if="dirSyncStatus" class="sync-badge" :class="syncClass" :title="syncTitle">
-        <svg v-if="dirSyncStatus.error" width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-          <circle cx="8" cy="8" r="7"/>
-        </svg>
-        <svg v-else width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M2 2v4h4" /><path d="M14 14v-4h-4" />
-          <path d="M3.5 10a5 5 0 0 0 8.5 1" /><path d="M12.5 6A5 5 0 0 0 4 5" />
-        </svg>
-      </span>
     </div>
 
     <router-link
@@ -40,7 +31,6 @@
         v-for="child in sortedChildren"
         :key="child.path"
         :node="child"
-        :sync-status="syncStatus"
       />
     </div>
   </div>
@@ -56,7 +46,6 @@ const router = useRouter()
 
 const props = defineProps({
   node: { type: Object, required: true },
-  syncStatus: { type: Object, default: () => ({}) },
 })
 
 const expanded = ref(true)
@@ -72,29 +61,6 @@ const sortedChildren = computed(() => {
   })
 })
 
-// Get sync status for this directory (only top-level synced dirs have entries)
-const dirSyncStatus = computed(() => {
-  if (!props.node.is_dir || !props.node.path) return null
-  return props.syncStatus[props.node.path] || null
-})
-
-const syncClass = computed(() => {
-  const s = dirSyncStatus.value
-  if (!s) return ''
-  if (s.error) return 'sync-error'
-  if (!s.clean) return 'sync-pending'
-  return 'sync-clean'
-})
-
-const syncTitle = computed(() => {
-  const s = dirSyncStatus.value
-  if (!s) return ''
-  if (s.error) return `Sync error: ${s.error}`
-  if (!s.clean) return 'Uncommitted changes'
-  if (s.ahead > 0) return `${s.ahead} commit(s) to push`
-  return 'Synced'
-})
-
 function toggleExpand() {
   expanded.value = !expanded.value
 }
@@ -108,17 +74,14 @@ function navigateToDir() {
 // Drag and drop handlers
 function onDragStart(event) {
   if (!props.node.page_id) return
-  
-  // Store the dragged page info
+
   const dragData = {
     pageId: props.node.page_id,
     currentPath: props.node.path,
-    fileName: props.node.path.split('/').pop() // Get just the filename
+    fileName: props.node.path.split('/').pop()
   }
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData('application/json', JSON.stringify(dragData))
-  
-  // Add visual feedback
   event.target.style.opacity = '0.5'
 }
 
@@ -157,25 +120,19 @@ async function onDrop(event) {
   event.preventDefault()
   dragCounter = 0
   isDragOver.value = false
-  
+
   if (!props.node.is_dir) return
-  
+
   try {
     const dragData = JSON.parse(event.dataTransfer.getData('application/json'))
     const { pageId, currentPath, fileName } = dragData
-    
-    // Build new path: directory path + filename
+
     const newPath = props.node.path ? `${props.node.path}/${fileName}` : fileName
-    
-    // Don't move if it's already in this directory
     if (currentPath === newPath) return
-    
-    // Call the API to move the page
+
     await movePage(pageId, newPath)
-    
-    // Notify the tree to refresh
     refreshSidebarTree()
-    
+
   } catch (error) {
     console.error('Failed to move page:', error)
     alert(`Failed to move file: ${error.message}`)
@@ -273,25 +230,5 @@ async function onDrop(event) {
 
 .tree-children {
   padding-left: 0.75rem;
-}
-
-.sync-badge {
-  margin-left: auto;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding-left: 0.35rem;
-}
-
-.sync-clean {
-  color: var(--success);
-}
-
-.sync-pending {
-  color: var(--warning);
-}
-
-.sync-error {
-  color: var(--error);
 }
 </style>

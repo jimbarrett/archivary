@@ -63,6 +63,9 @@ func StartServer(cfg *config.Config, fileStore *store.FileStore, indexer *index.
 	syncAPI.DELETE("/remotes/:path", h.removeRemote)
 	syncAPI.POST("/commit/:path", h.syncCommit)
 	syncAPI.GET("/log/:path", h.syncLog)
+	syncAPI.GET("/excluded", h.listExcluded)
+	syncAPI.POST("/exclude/:path", h.excludeDir)
+	syncAPI.POST("/include/:path", h.includeDir)
 
 	// Serve frontend from embedded assets
 	serveFrontend(e)
