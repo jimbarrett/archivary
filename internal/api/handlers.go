@@ -339,8 +339,25 @@ func (h *handlers) deleteDir(c echo.Context) error {
 		return errJSON(c, http.StatusBadRequest, "directory path is required")
 	}
 
-	if err := h.store.DeleteDir(c.Request().Context(), dirPath); err != nil {
+	force := c.QueryParam("force") == "true"
+	ctx := c.Request().Context()
+
+	removedIDs, err := h.store.DeleteDir(ctx, dirPath, force)
+	if err != nil {
 		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+
+	// Remove deleted pages from the search index.
+	for _, id := range removedIDs {
+		if err := h.indexer.RemovePage(ctx, id); err != nil {
+			// Log but don't fail the request.
+			_ = err
+		}
+	}
+
+	// Stage the deletions and commit in the sync repo.
+	if h.sync != nil {
+		h.sync.NotifyDirDelete(dirPath)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})

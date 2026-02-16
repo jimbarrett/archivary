@@ -528,6 +528,48 @@ func (m *SyncManager) ExcludedDirs() []string {
 	return out
 }
 
+// NotifyDirDelete is called after a directory has been removed from disk.
+// It stages all changes (the deletions) and commits if auto-commit is enabled.
+func (m *SyncManager) NotifyDirDelete(dirPath string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	repo, ok := m.repos["."]
+	if !ok {
+		return
+	}
+
+	// Check if excluded — if so, git doesn't track it anyway.
+	topDir := topLevelDir(dirPath + "/x") // ensure we get the top-level component
+	if topDir == "" {
+		topDir = dirPath
+	}
+	if m.config.IsExcluded(topDir) {
+		return
+	}
+
+	var rc *RemoteConfig
+	for i := range m.config.Remotes {
+		if m.config.Remotes[i].Path == "." {
+			rc = &m.config.Remotes[i]
+			break
+		}
+	}
+	if rc == nil || !rc.AutoCommit {
+		return
+	}
+
+	if err := repo.AddAll(); err != nil {
+		log.Printf("sync: auto-add after dir delete %s failed: %v", dirPath, err)
+		m.lastError["."] = err.Error()
+		return
+	}
+	if err := repo.Commit("delete " + dirPath); err != nil {
+		log.Printf("sync: auto-commit after dir delete %s failed: %v", dirPath, err)
+		m.lastError["."] = err.Error()
+	}
+}
+
 // topLevelDir extracts the first path component from a relative file path.
 // Returns empty string if the file is in the root directory.
 func topLevelDir(filePath string) string {

@@ -74,8 +74,9 @@ export function renameDir(path, newName) {
   })
 }
 
-export function deleteDir(path) {
-  return request(`/dirs/${encodeURIComponent(path)}`, {
+export function deleteDir(path, { force = false } = {}) {
+  const q = force ? '?force=true' : ''
+  return request(`/dirs/${encodeURIComponent(path)}${q}`, {
     method: 'DELETE',
   })
 }

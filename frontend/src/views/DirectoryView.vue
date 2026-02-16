@@ -213,10 +213,20 @@ async function submitRename() {
 }
 
 async function confirmDelete() {
-  if (!confirm(`Delete directory "${dirNode.value.name}"? This only works for empty directories.`)) return
+  const name = dirNode.value.name
+  const hasChildren = (dirNode.value.children && dirNode.value.children.length > 0)
+
+  let force = false
+  if (hasChildren) {
+    if (!confirm(`Delete "${name}" and all its contents? This will permanently remove all pages and subdirectories inside it. This cannot be undone.`)) return
+    force = true
+  } else {
+    if (!confirm(`Delete empty directory "${name}"?`)) return
+  }
+
   error.value = null
   try {
-    await deleteDir(props.path)
+    await deleteDir(props.path, { force })
     refreshSidebarTree()
     const parentDir = props.path.includes('/') ? props.path.substring(0, props.path.lastIndexOf('/')) : ''
     if (parentDir) {
