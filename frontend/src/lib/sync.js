@@ -1,11 +1,12 @@
 import { ref, computed } from 'vue'
-import { getSyncStatus, listRemotes, listExcludedDirs, syncNow as apiSyncNow } from './api.js'
+import { getSyncStatus, listRemotes, listExcluded, syncNow as apiSyncNow } from './api.js'
 
 // Reactive sync state — polled periodically
-const syncStatus = ref({})   // map of path -> DirSyncStatus
-const syncRemotes = ref([])  // array of RemoteConfig
-const syncing = ref(false)   // true while a sync operation is in progress
-const excludedDirs = ref([]) // array of excluded directory names
+const syncStatus = ref({})    // map of path -> DirSyncStatus
+const syncRemotes = ref([])   // array of RemoteConfig
+const syncing = ref(false)    // true while a sync operation is in progress
+const excludedDirs = ref([])  // array of excluded directory names
+const excludedFiles = ref([]) // array of excluded file names
 
 let pollInterval = null
 
@@ -29,11 +30,12 @@ export async function refreshSyncStatus() {
     const [status, remotes, excluded] = await Promise.all([
       getSyncStatus(),
       listRemotes(),
-      listExcludedDirs(),
+      listExcluded(),
     ])
     syncStatus.value = status
     syncRemotes.value = remotes
-    excludedDirs.value = excluded
+    excludedDirs.value = excluded.dirs || []
+    excludedFiles.value = excluded.files || []
   } catch (e) {
     // Sync may not be configured — that's fine
     console.debug('Sync status fetch failed:', e)
@@ -86,5 +88,10 @@ export function getSyncStatusForPath(path) {
   return syncStatus.value[path] || null
 }
 
+// Check if a file name is excluded from sync
+export function isFileExcluded(fileName) {
+  return excludedFiles.value.includes(fileName)
+}
+
 // Exported refs for components
-export { syncStatus, syncRemotes, syncing, excludedDirs }
+export { syncStatus, syncRemotes, syncing, excludedDirs, excludedFiles }

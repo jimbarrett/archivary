@@ -95,7 +95,7 @@ func TestAddRemote_Init(t *testing.T) {
 		AutoCommit: true,
 		Branch:     "main",
 	}
-	if err := m.AddRemote(rc); err != nil {
+	if err := m.AddRemote(rc, nil, nil); err != nil {
 		t.Fatalf("AddRemote: %v", err)
 	}
 
@@ -153,7 +153,7 @@ func TestAddRemote_Clone(t *testing.T) {
 		Path: "cloned",
 		URL:  srcDir,
 	}
-	if err := m.AddRemote(rc); err != nil {
+	if err := m.AddRemote(rc, nil, nil); err != nil {
 		t.Fatalf("AddRemote clone: %v", err)
 	}
 
@@ -176,10 +176,10 @@ func TestAddRemote_Duplicate(t *testing.T) {
 	}
 
 	rc := RemoteConfig{Path: "notes"}
-	if err := m.AddRemote(rc); err != nil {
+	if err := m.AddRemote(rc, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.AddRemote(rc); err == nil {
+	if err := m.AddRemote(rc, nil, nil); err == nil {
 		t.Fatal("expected error on duplicate AddRemote")
 	}
 }
@@ -195,7 +195,7 @@ func TestNotifyChange_AutoCommit(t *testing.T) {
 		Path:       "work",
 		AutoCommit: true,
 	}
-	if err := m.AddRemote(rc); err != nil {
+	if err := m.AddRemote(rc, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	configureGitUser(t, filepath.Join(env.workspaceDir, "work"))
@@ -247,7 +247,7 @@ func TestNotifyChange_NoAutoCommit(t *testing.T) {
 		Path:       "work",
 		AutoCommit: false,
 	}
-	if err := m.AddRemote(rc); err != nil {
+	if err := m.AddRemote(rc, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	configureGitUser(t, filepath.Join(env.workspaceDir, "work"))
@@ -277,7 +277,7 @@ func TestRemoveRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := m.AddRemote(RemoteConfig{Path: "notes"}); err != nil {
+	if err := m.AddRemote(RemoteConfig{Path: "notes"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.RemoveRemote("notes"); err != nil {
@@ -333,7 +333,7 @@ func TestStatus(t *testing.T) {
 	}
 
 	// Add a remote.
-	if err := m.AddRemote(RemoteConfig{Path: "work", Branch: "main"}); err != nil {
+	if err := m.AddRemote(RemoteConfig{Path: "work", Branch: "main"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -366,7 +366,7 @@ func TestConfigPersistence(t *testing.T) {
 		AutoPush:            true,
 		PushIntervalMinutes: 10,
 	}
-	if err := m.AddRemote(rc); err != nil {
+	if err := m.AddRemote(rc, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

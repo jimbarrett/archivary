@@ -442,5 +442,32 @@ func (fs *FileStore) RebuildIndex() error {
 	return fs.buildIndex()
 }
 
+// TopLevelEntry represents a top-level item in the workspace.
+type TopLevelEntry struct {
+	Name  string `json:"name"`
+	IsDir bool   `json:"is_dir"`
+}
+
+// ListTopLevel returns top-level entries in the workspace, skipping dotfiles/dotdirs.
+func (fs *FileStore) ListTopLevel() ([]TopLevelEntry, error) {
+	entries, err := os.ReadDir(fs.root)
+	if err != nil {
+		return nil, fmt.Errorf("reading workspace root: %w", err)
+	}
+
+	var result []TopLevelEntry
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		result = append(result, TopLevelEntry{
+			Name:  name,
+			IsDir: e.IsDir(),
+		})
+	}
+	return result, nil
+}
+
 // Ensure FileStore satisfies ContentStore at compile time.
 var _ ContentStore = (*FileStore)(nil)

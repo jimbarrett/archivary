@@ -45,6 +45,22 @@
         />
       </div>
 
+      <!-- Workspace contents preview (setup mode only) -->
+      <div v-if="!isEditing && workspaceEntries.length" class="workspace-preview">
+        <label class="field-label">Workspace Contents</label>
+        <p class="field-hint">Uncheck items to exclude from sync</p>
+        <div class="entry-list">
+          <label v-for="entry in workspaceEntries" :key="entry.name" class="entry-row">
+            <input
+              type="checkbox"
+              :checked="!uncheckedEntries.has(entry.name)"
+              @change="toggleEntry(entry.name)"
+            />
+            <span class="entry-name">{{ entry.name }}{{ entry.is_dir ? '/' : '' }}</span>
+          </label>
+        </div>
+      </div>
+
       <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="dialog-actions">
@@ -65,8 +81,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { addRemote, updateRemote, removeRemote } from '../lib/api.js'
+import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { addRemote, updateRemote, removeRemote, getWorkspaceEntries } from '../lib/api.js'
 import { refreshSyncStatus } from '../lib/sync.js'
 
 const props = defineProps({
@@ -88,9 +104,24 @@ const form = ref({
 const error = ref('')
 const submitting = ref(false)
 const urlInput = ref(null)
+const workspaceEntries = ref([])
+const uncheckedEntries = reactive(new Set())
 
-onMounted(() => {
+function toggleEntry(name) {
+  if (uncheckedEntries.has(name)) {
+    uncheckedEntries.delete(name)
+  } else {
+    uncheckedEntries.add(name)
+  }
+}
+
+onMounted(async () => {
   if (!isEditing.value) {
+    try {
+      workspaceEntries.value = await getWorkspaceEntries()
+    } catch (e) {
+      console.debug('Failed to load workspace entries:', e)
+    }
     nextTick(() => {
       if (urlInput.value) urlInput.value.focus()
     })
@@ -111,6 +142,18 @@ async function submit() {
         push_interval_minutes: form.value.pushInterval,
       })
     } else {
+      // Split unchecked items into dirs and files
+      const excludedDirs = []
+      const excludedFiles = []
+      for (const name of uncheckedEntries) {
+        const entry = workspaceEntries.value.find(e => e.name === name)
+        if (entry?.is_dir) {
+          excludedDirs.push(name)
+        } else {
+          excludedFiles.push(name)
+        }
+      }
+
       await addRemote({
         path: '.',
         url: form.value.url.trim(),
@@ -118,6 +161,8 @@ async function submit() {
         auto_commit: form.value.autoCommit,
         auto_push: form.value.autoPush,
         push_interval_minutes: form.value.pushInterval,
+        excluded_dirs: excludedDirs,
+        excluded_files: excludedFiles,
       })
     }
     await refreshSyncStatus()
@@ -302,5 +347,40 @@ async function onUnsync() {
 
 .btn-danger:hover {
   background: rgba(247, 118, 142, 0.1);
+}
+
+.workspace-preview {
+  margin: 0.75rem 0;
+}
+
+.entry-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0;
+}
+
+.entry-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.entry-row:hover {
+  background: var(--bg-hover);
+}
+
+.entry-row input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.entry-name {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8rem;
 }
 </style>

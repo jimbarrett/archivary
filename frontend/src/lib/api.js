@@ -149,7 +149,7 @@ export function syncCommit(path, message) {
   })
 }
 
-export function listExcludedDirs() {
+export function listExcluded() {
   return request('/sync/excluded')
 }
 
@@ -159,4 +159,16 @@ export function excludeDir(dirName) {
 
 export function includeDir(dirName) {
   return request(`/sync/include/${encodeURIComponent(dirName)}`, { method: 'POST' })
+}
+
+export function excludeFile(fileName) {
+  return request(`/sync/exclude-file/${encodeURIComponent(fileName)}`, { method: 'POST' })
+}
+
+export function includeFile(fileName) {
+  return request(`/sync/include-file/${encodeURIComponent(fileName)}`, { method: 'POST' })
+}
+
+export function getWorkspaceEntries() {
+  return request('/workspace/entries')
 }

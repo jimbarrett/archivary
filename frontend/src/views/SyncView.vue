@@ -75,13 +75,17 @@
         </div>
       </div>
 
-      <!-- Excluded directories -->
-      <div v-if="excludedDirs.length" class="section">
-        <h2 class="section-title">Excluded Directories</h2>
+      <!-- Excluded items -->
+      <div v-if="excludedDirs.length || excludedFiles.length" class="section">
+        <h2 class="section-title">Excluded</h2>
         <div class="excluded-list">
-          <div v-for="dir in excludedDirs" :key="dir" class="excluded-item">
+          <div v-for="dir in excludedDirs" :key="'d-' + dir" class="excluded-item">
             <span class="excluded-name">{{ dir }}/</span>
-            <button class="btn btn-small" @click="onInclude(dir)">Include</button>
+            <button class="btn btn-small" @click="onIncludeDir(dir)">Include</button>
+          </div>
+          <div v-for="file in excludedFiles" :key="'f-' + file" class="excluded-item">
+            <span class="excluded-name">{{ file }}</span>
+            <button class="btn btn-small" @click="onIncludeFile(file)">Include</button>
           </div>
         </div>
       </div>
@@ -104,8 +108,8 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { getSyncLog, removeRemote, includeDir } from '../lib/api.js'
-import { syncStatus, syncing, refreshSyncStatus, triggerSyncAll, isRootSynced, rootRemote, excludedDirs } from '../lib/sync.js'
+import { getSyncLog, removeRemote, includeDir, includeFile } from '../lib/api.js'
+import { syncStatus, syncing, refreshSyncStatus, triggerSyncAll, isRootSynced, rootRemote, excludedDirs, excludedFiles } from '../lib/sync.js'
 import { refreshSidebarTree } from '../lib/events.js'
 import SyncSettingsDialog from '../components/SyncSettingsDialog.vue'
 
@@ -179,9 +183,19 @@ async function onUnsync() {
   }
 }
 
-async function onInclude(dir) {
+async function onIncludeDir(dir) {
   try {
     await includeDir(dir)
+    await refreshSyncStatus()
+    await loadLog()
+  } catch (e) {
+    alert('Include failed: ' + e.message)
+  }
+}
+
+async function onIncludeFile(file) {
+  try {
+    await includeFile(file)
     await refreshSyncStatus()
     await loadLog()
   } catch (e) {
