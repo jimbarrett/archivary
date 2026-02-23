@@ -72,6 +72,15 @@ func (r *GitRepo) Dir() string {
 	return r.dir
 }
 
+// Branch returns the name of the currently checked-out branch.
+func (r *GitRepo) Branch() (string, error) {
+	out, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // Add stages files for the next commit.
 func (r *GitRepo) Add(files ...string) error {
 	if len(files) == 0 {

@@ -16,12 +16,14 @@
 
       <label class="field-label">Branch</label>
       <input
+        v-if="!isEditing"
         v-model="form.branch"
         type="text"
         placeholder="main"
         class="field-input"
         @keydown.escape="$emit('close')"
       />
+      <span v-else class="field-value">{{ actualBranch }}</span>
 
       <div class="toggle-group">
         <label class="toggle-row">
@@ -83,7 +85,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { addRemote, updateRemote, removeRemote, getWorkspaceEntries } from '../lib/api.js'
-import { refreshSyncStatus } from '../lib/sync.js'
+import { refreshSyncStatus, rootSyncStatus } from '../lib/sync.js'
 
 const props = defineProps({
   remote: { type: Object, default: null },
@@ -92,6 +94,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'saved'])
 
 const isEditing = computed(() => !!props.remote)
+const actualBranch = computed(() => rootSyncStatus.value?.branch || props.remote?.branch || 'main')
 
 const form = ref({
   url: props.remote?.url || '',
@@ -136,7 +139,6 @@ async function submit() {
     if (isEditing.value) {
       await updateRemote('.', {
         url: form.value.url,
-        branch: form.value.branch,
         auto_commit: form.value.autoCommit,
         auto_push: form.value.autoPush,
         push_interval_minutes: form.value.pushInterval,
@@ -247,6 +249,15 @@ async function onUnsync() {
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-bottom: 0.75rem;
+}
+
+.field-value {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  padding: 0.4rem 0;
+  margin-bottom: 0.25rem;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }
 
 .toggle-group {

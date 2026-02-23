@@ -296,6 +296,11 @@ func (m *SyncManager) dirStatus(rc RemoteConfig) DirSyncStatus {
 		return ds
 	}
 
+	// Use the actual branch from git, not the config value.
+	if branch, err := repo.Branch(); err == nil {
+		ds.Branch = branch
+	}
+
 	status, err := repo.Status()
 	if err != nil {
 		ds.Error = err.Error()
