@@ -23,6 +23,11 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
+		_, port, alive := readPidFile()
+		if alive && port != "" {
+			fmt.Printf("Archivary is running at \033[1mhttp://localhost:%s\033[0m\n", port)
+			return
+		}
 		printUsage()
 		os.Exit(1)
 	}
