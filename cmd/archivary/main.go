@@ -160,7 +160,21 @@ func cmdStart(port string, openBrowser bool) error {
 	}
 	logFile.Close()
 
-	fmt.Printf("Archivary started (pid %d)\n", cmd.Process.Pid)
+	// Wait briefly for the child to write the PID file with the port
+	var startedPort string
+	for i := 0; i < 20; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if _, p, alive := readPidFile(); alive && p != "" {
+			startedPort = p
+			break
+		}
+	}
+
+	if startedPort != "" {
+		fmt.Printf("Archivary started at \033[1mhttp://localhost:%s\033[0m (pid %d)\n", startedPort, cmd.Process.Pid)
+	} else {
+		fmt.Printf("Archivary started (pid %d)\n", cmd.Process.Pid)
+	}
 	fmt.Printf("Log file: %s\n", logPath)
 	return nil
 }
