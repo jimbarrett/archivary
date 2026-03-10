@@ -5,7 +5,7 @@ build: build-frontend build-backend
 
 # Build the Vue frontend
 build-frontend:
-	cd frontend && npm run build
+	cd frontend && npm install --silent && npm run build
 
 # Build the Go binary
 build-backend: build-frontend

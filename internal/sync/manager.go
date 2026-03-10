@@ -102,6 +102,9 @@ func (m *SyncManager) Stop() {
 		if !ok {
 			continue
 		}
+		if err := repo.Pull(); err != nil {
+			log.Printf("sync: final pull failed: %v", err)
+		}
 		if err := repo.Push(); err != nil {
 			log.Printf("sync: final push failed: %v", err)
 		}
@@ -131,7 +134,10 @@ func (m *SyncManager) backgroundLoop() {
 				if time.Since(last) < time.Duration(rc.PushIntervalMinutes)*time.Minute {
 					continue
 				}
-				if err := repo.Push(); err != nil {
+				if err := repo.Pull(); err != nil {
+					m.lastError["."] = err.Error()
+					log.Printf("sync: auto-push pull failed: %v", err)
+				} else if err := repo.Push(); err != nil {
 					m.lastError["."] = err.Error()
 					log.Printf("sync: auto-push failed: %v", err)
 				} else {
@@ -214,6 +220,10 @@ func (m *SyncManager) NotifyChange(filePath, action string) {
 	if topDir != "" && m.config.IsExcluded(topDir) {
 		return
 	}
+	// Check if a top-level file is excluded.
+	if topDir == "" && m.config.IsFileExcluded(filePath) {
+		return
+	}
 
 	// Find the config for the root repo.
 	var rc *RemoteConfig
@@ -286,6 +296,11 @@ func (m *SyncManager) dirStatus(rc RemoteConfig) DirSyncStatus {
 		return ds
 	}
 
+	// Use the actual branch from git, not the config value.
+	if branch, err := repo.Branch(); err == nil {
+		ds.Branch = branch
+	}
+
 	status, err := repo.Status()
 	if err != nil {
 		ds.Error = err.Error()
@@ -298,7 +313,8 @@ func (m *SyncManager) dirStatus(rc RemoteConfig) DirSyncStatus {
 }
 
 // AddRemote configures the workspace sync. Only path "." is accepted.
-func (m *SyncManager) AddRemote(rc RemoteConfig) error {
+// excludedDirs and excludedFiles are applied before the initial commit.
+func (m *SyncManager) AddRemote(rc RemoteConfig, excludedDirs, excludedFiles []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -330,6 +346,22 @@ func (m *SyncManager) AddRemote(rc RemoteConfig) error {
 
 	m.repos["."] = repo
 	m.config.Remotes = append(m.config.Remotes, rc)
+
+	// Pull existing remote content before the initial commit so we
+	// don't overwrite what's already on the remote.
+	if rc.URL != "" {
+		if err := repo.Pull(); err != nil {
+			log.Printf("sync: initial pull failed: %v", err)
+		}
+	}
+
+	// Apply initial exclusions before the first commit.
+	for _, d := range excludedDirs {
+		m.config.AddExcludedDir(d)
+	}
+	for _, f := range excludedFiles {
+		m.config.AddExcludedFile(f)
+	}
 
 	if err := SaveSyncConfig(m.dataDir, m.config); err != nil {
 		return fmt.Errorf("saving config: %w", err)
@@ -366,6 +398,7 @@ func (m *SyncManager) RemoveRemote(path string) error {
 
 	m.config.Remotes = remotes
 	m.config.ExcludedDirs = nil
+	m.config.ExcludedFiles = nil
 	delete(m.repos, ".")
 	delete(m.lastPush, ".")
 	delete(m.lastError, ".")
@@ -528,6 +561,82 @@ func (m *SyncManager) ExcludedDirs() []string {
 	return out
 }
 
+// ExcludeFile excludes a file from git tracking.
+func (m *SyncManager) ExcludeFile(file string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if file == "" || strings.Contains(file, "/") || file == "." || file == ".." {
+		return fmt.Errorf("invalid file name: %s", file)
+	}
+
+	repo, ok := m.repos["."]
+	if !ok {
+		return fmt.Errorf("no workspace repo configured")
+	}
+
+	m.config.AddExcludedFile(file)
+	if err := SaveSyncConfig(m.dataDir, m.config); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	m.updateRootGitignore()
+
+	if err := repo.RemoveCached(file); err != nil {
+		log.Printf("sync: RemoveCached %s failed: %v", file, err)
+	}
+
+	if err := repo.Add(".gitignore"); err != nil {
+		return fmt.Errorf("staging .gitignore: %w", err)
+	}
+	if err := repo.Commit("exclude " + file); err != nil {
+		log.Printf("sync: commit exclude %s: %v", file, err)
+	}
+	return nil
+}
+
+// IncludeFile re-includes a previously excluded file in git tracking.
+func (m *SyncManager) IncludeFile(file string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if file == "" || strings.Contains(file, "/") || file == "." || file == ".." {
+		return fmt.Errorf("invalid file name: %s", file)
+	}
+
+	repo, ok := m.repos["."]
+	if !ok {
+		return fmt.Errorf("no workspace repo configured")
+	}
+
+	m.config.RemoveExcludedFile(file)
+	if err := SaveSyncConfig(m.dataDir, m.config); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	m.updateRootGitignore()
+
+	if err := repo.Add(file); err != nil {
+		log.Printf("sync: add %s failed: %v", file, err)
+	}
+	if err := repo.Add(".gitignore"); err != nil {
+		return fmt.Errorf("staging .gitignore: %w", err)
+	}
+	if err := repo.Commit("include " + file); err != nil {
+		log.Printf("sync: commit include %s: %v", file, err)
+	}
+	return nil
+}
+
+// ExcludedFiles returns a copy of the excluded files list.
+func (m *SyncManager) ExcludedFiles() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.config.ExcludedFiles))
+	copy(out, m.config.ExcludedFiles)
+	return out
+}
+
 // NotifyDirDelete is called after a directory has been removed from disk.
 // It stages all changes (the deletions) and commits if auto-commit is enabled.
 func (m *SyncManager) NotifyDirDelete(dirPath string) {
@@ -588,10 +697,13 @@ func (m *SyncManager) updateRootGitignore() {
 		return
 	}
 
-	// Build sorted list of gitignore entries from excluded dirs.
+	// Build sorted list of gitignore entries from excluded dirs and files.
 	var lines []string
 	for _, dir := range m.config.ExcludedDirs {
 		lines = append(lines, dir+"/")
+	}
+	for _, file := range m.config.ExcludedFiles {
+		lines = append(lines, file)
 	}
 	sort.Strings(lines)
 

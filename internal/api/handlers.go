@@ -393,12 +393,14 @@ func (h *handlers) checkPath(c echo.Context) error {
 
 // addRemoteRequest is the JSON body for adding a sync remote.
 type addRemoteRequest struct {
-	URL                 string `json:"url"`
-	Path                string `json:"path"`
-	Branch              string `json:"branch"`
-	AutoCommit          bool   `json:"auto_commit"`
-	AutoPush            bool   `json:"auto_push"`
-	PushIntervalMinutes int    `json:"push_interval_minutes"`
+	URL                 string   `json:"url"`
+	Path                string   `json:"path"`
+	Branch              string   `json:"branch"`
+	AutoCommit          bool     `json:"auto_commit"`
+	AutoPush            bool     `json:"auto_push"`
+	PushIntervalMinutes int      `json:"push_interval_minutes"`
+	ExcludedDirs        []string `json:"excluded_dirs"`
+	ExcludedFiles       []string `json:"excluded_files"`
 }
 
 // updateRemoteRequest is the JSON body for updating a sync remote.
@@ -483,7 +485,7 @@ func (h *handlers) addRemote(c echo.Context) error {
 		AutoPush:            req.AutoPush,
 		PushIntervalMinutes: req.PushIntervalMinutes,
 	}
-	if err := h.sync.AddRemote(rc); err != nil {
+	if err := h.sync.AddRemote(rc, req.ExcludedDirs, req.ExcludedFiles); err != nil {
 		return errJSON(c, http.StatusBadRequest, err.Error())
 	}
 	return c.JSON(http.StatusCreated, rc)
@@ -603,13 +605,17 @@ func (h *handlers) syncLog(c echo.Context) error {
 // GET /api/sync/excluded
 func (h *handlers) listExcluded(c echo.Context) error {
 	if h.sync == nil {
-		return c.JSON(http.StatusOK, []string{})
+		return c.JSON(http.StatusOK, map[string][]string{"dirs": {}, "files": {}})
 	}
 	dirs := h.sync.ExcludedDirs()
 	if dirs == nil {
 		dirs = []string{}
 	}
-	return c.JSON(http.StatusOK, dirs)
+	files := h.sync.ExcludedFiles()
+	if files == nil {
+		files = []string{}
+	}
+	return c.JSON(http.StatusOK, map[string][]string{"dirs": dirs, "files": files})
 }
 
 // POST /api/sync/exclude/:path
@@ -634,4 +640,37 @@ func (h *handlers) includeDir(c echo.Context) error {
 		return errJSON(c, http.StatusBadRequest, err.Error())
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "included"})
+}
+
+// POST /api/sync/exclude-file/:path
+func (h *handlers) excludeFile(c echo.Context) error {
+	if h.sync == nil {
+		return errJSON(c, http.StatusBadRequest, "sync not configured")
+	}
+	file := c.Param("path")
+	if err := h.sync.ExcludeFile(file); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "excluded"})
+}
+
+// POST /api/sync/include-file/:path
+func (h *handlers) includeFile(c echo.Context) error {
+	if h.sync == nil {
+		return errJSON(c, http.StatusBadRequest, "sync not configured")
+	}
+	file := c.Param("path")
+	if err := h.sync.IncludeFile(file); err != nil {
+		return errJSON(c, http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "included"})
+}
+
+// GET /api/workspace/entries
+func (h *handlers) getWorkspaceEntries(c echo.Context) error {
+	entries, err := h.store.ListTopLevel()
+	if err != nil {
+		return errJSON(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, entries)
 }

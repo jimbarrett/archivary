@@ -72,6 +72,15 @@ func (r *GitRepo) Dir() string {
 	return r.dir
 }
 
+// Branch returns the name of the currently checked-out branch.
+func (r *GitRepo) Branch() (string, error) {
+	out, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // Add stages files for the next commit.
 func (r *GitRepo) Add(files ...string) error {
 	if len(files) == 0 {
@@ -140,9 +149,33 @@ func (r *GitRepo) Pull() error {
 	if _, err := r.run("fetch"); err != nil {
 		return err
 	}
-	// Only rebase if the tracking branch exists and has commits.
+	// Determine the upstream to rebase onto.
 	upstream, upErr := r.run("rev-parse", "--abbrev-ref", "@{u}")
 	if upErr != nil || strings.TrimSpace(upstream) == "" {
+		// No upstream tracking configured yet. Fall back to origin/<branch>
+		// so the first sync works when the remote already has commits.
+		branch, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
+		if err != nil {
+			return nil
+		}
+		candidate := "origin/" + strings.TrimSpace(branch)
+		if _, err := r.run("rev-parse", "--verify", candidate); err != nil {
+			return nil // Remote branch doesn't exist yet, nothing to pull.
+		}
+		// First sync: histories are unrelated so rebase won't work.
+		// Soft reset to the remote branch to adopt its history, then
+		// checkout those files to disk so they aren't staged as deletions.
+		// Local-only files remain untouched on disk.
+		if _, err := r.run("reset", "--soft", candidate); err != nil {
+			return err
+		}
+		if _, err := r.run("checkout", "HEAD", "--", "."); err != nil {
+			return err
+		}
+		if err := r.AddAll(); err != nil {
+			return err
+		}
+		_ = r.Commit("sync workspace")
 		return nil
 	}
 	_, err = r.run("rebase", strings.TrimSpace(upstream))

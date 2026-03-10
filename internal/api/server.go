@@ -67,6 +67,11 @@ func StartServer(ctx context.Context, cfg *config.Config, fileStore *store.FileS
 	syncAPI.GET("/excluded", h.listExcluded)
 	syncAPI.POST("/exclude/:path", h.excludeDir)
 	syncAPI.POST("/include/:path", h.includeDir)
+	syncAPI.POST("/exclude-file/:path", h.excludeFile)
+	syncAPI.POST("/include-file/:path", h.includeFile)
+
+	// Workspace routes
+	api.GET("/workspace/entries", h.getWorkspaceEntries)
 
 	// Serve frontend from embedded assets
 	serveFrontend(e)

@@ -19,8 +19,9 @@ type RemoteConfig struct {
 
 // SyncConfig holds the list of all configured sync remotes.
 type SyncConfig struct {
-	Remotes      []RemoteConfig `json:"remotes"`
-	ExcludedDirs []string       `json:"excluded_dirs,omitempty"`
+	Remotes       []RemoteConfig `json:"remotes"`
+	ExcludedDirs  []string       `json:"excluded_dirs,omitempty"`
+	ExcludedFiles []string       `json:"excluded_files,omitempty"`
 }
 
 // IsExcluded returns true if the given directory name is in the excluded list.
@@ -49,6 +50,34 @@ func (c *SyncConfig) RemoveExcludedDir(dir string) {
 		}
 	}
 	c.ExcludedDirs = out
+}
+
+// IsFileExcluded returns true if the given file name is in the excluded files list.
+func (c *SyncConfig) IsFileExcluded(file string) bool {
+	for _, f := range c.ExcludedFiles {
+		if f == file {
+			return true
+		}
+	}
+	return false
+}
+
+// AddExcludedFile adds a file to the excluded files list if not already present.
+func (c *SyncConfig) AddExcludedFile(file string) {
+	if !c.IsFileExcluded(file) {
+		c.ExcludedFiles = append(c.ExcludedFiles, file)
+	}
+}
+
+// RemoveExcludedFile removes a file from the excluded files list.
+func (c *SyncConfig) RemoveExcludedFile(file string) {
+	out := c.ExcludedFiles[:0]
+	for _, f := range c.ExcludedFiles {
+		if f != file {
+			out = append(out, f)
+		}
+	}
+	c.ExcludedFiles = out
 }
 
 const syncConfigFile = "sync.json"
