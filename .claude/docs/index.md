@@ -45,7 +45,7 @@ Archivary is a local-first personal knowledge base that stores pages as Markdown
 ## Quick Reference
 ```bash
 make build              # Build frontend + Go binary → bin/archivary
-make dev-backend        # Run Go server with hot-reload (port 8080)
+make dev-backend        # Run Go server with hot-reload (auto-selects port from 10200)
 make dev-frontend       # Run Vite dev server (port 5173, proxies /api)
 make clean              # Remove bin/ and frontend/dist/
 go test ./...           # Run all Go tests

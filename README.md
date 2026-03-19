@@ -49,7 +49,7 @@ archivary serve
 This will:
 1. Create a workspace at `~/Archivary/` (if it doesn't exist)
 2. Seed a welcome page on first run
-3. Open your browser to `http://localhost:8080`
+3. Auto-select an available port starting at 10200 and open your browser
 
 ## Building from Source
 
@@ -79,8 +79,8 @@ make build
 Run the backend and frontend dev servers in separate terminals:
 
 ```bash
-make dev-backend    # Go server on :8080
-make dev-frontend   # Vite dev server on :5173 (proxies /api to :8080)
+make dev-backend    # Go server (auto-selects port from 10200)
+make dev-frontend   # Vite dev server on :5173 (proxies /api to backend)
 ```
 
 ## Usage
@@ -89,7 +89,8 @@ make dev-frontend   # Vite dev server on :5173 (proxies /api to :8080)
 archivary serve [port] [--no-browser]
 ```
 
-- Default port is `8080`
+- Auto-selects the first available port starting at 10200 (scans up to 100 ports)
+- Optionally specify an exact port: `archivary serve 9090`
 - `--no-browser` skips auto-opening the browser
 
 ## How It Works
